@@ -1,0 +1,301 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Advanced Topics</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+</head>
+
+<body>
+
+<h2>Advanced Topics</h2>
+<p>As with all frameworks, Dejavu can't cover every need out-of-the-box.
+However, Dejavu has been specifically designed to be hackable. In particular,
+the creation of new Storage Managers is a well-defined process. Read on if
+there's a feature you need that you might consider building yourself.</p>
+
+<h3>Subclassing Sandbox</h3>
+<p>Okay, I lied. There's not much I can think of that you'd want to do with
+Sandboxes. Most things I <i>can</i> think of would be better implemented
+as Storage Manager middleware. But if you think of any, let me know.</p>
+
+<h3>Store Hacking</h3>
+<p>The most common modification to a <tt>StorageManager</tt> object is to
+use it as a dumping-ground for other application data. Since the store
+should persist for the lifetime of the application's process, it can serve
+as a decent top-level Application namespace. Since the only mandatory
+argument to <tt>Sandbox.__init__</tt> is a store, you can pass Sandboxes
+around in your code and always have access to the root store. If you use
+another application framework for your front-end, just stick a reference
+to it in your store and vice-versa. Python dynamic attributes to the rescue
+again!</p>
+
+<h3>Passing through SQL</h3>
+<p>If you <i>want</i> to keep writing SQL, there's nothing stopping you
+from doing so. If nothing else, it can be a handy way to prototype or
+migrate an application, and then replace the SQL with Dejavu API calls
+later on. You'll need to make your deployers aware that you're using SQL
+directly (and which DB's your SQL runs on), so they don't try to deploy
+your application with an unsupported store.</p>
+
+<p>To avoid stale data, you should probably flush any sandboxes before
+running your query, especially if it updates data. You should also run
+the following snippet to flush CachingProxy or BurnedProxy SM's:</p>
+
+<pre>store.sweep_all()</pre>
+
+<p>Then, use the extension methods built into StorageManager classes' "db"
+attribute to get data:</p>
+
+<pre>>>> rows, cols = s.db.fetch("SELECT djvFields.Value, Count(djvCity.ID) AS NumCities "
+                            "FROM djvFields LEFT JOIN djvCity ON djvFields.ID = "
+                            "djvCity.Field GROUP BY djvFields.Value")
+>>> cols     # [(name, type), (name, type), ...]
+[(u'Value', 202), (u'NumCities', 3)]
+>>> rows
+[(u'Baja California', 3), (u'Ciudad Juarez', 1), (u'Puerto Penasco', 0), (u'Yucatan Peninsula', 1)]
+</pre>
+
+<p>...or update:</p>
+
+<pre>>>> s.db.execute("UPDATE djvFields SET ShortCode = Left(Value, 1) WHERE ShortCode Is Null;")</pre>
+
+<p>There are a <b>lot</b> of other things you can do with the builtin
+Database, Schema, Table, Column, and SQLDecompiler classes. Feel free to open
+them up in an interactive session and explore. All of the RDBMS Storage Managers
+are built on top of an independent SQL layer (called
+<a href='http://projects.amor.org/geniusql'>Geniusql</a>) that knows nothing
+about units or Storage Managers (but it does understand Expressions).</p>
+
+<h3>Custom Storage Managers</h3>
+<p>In most cases, you will add new functionality to Dejavu itself by
+creating a custom Storage Manager, whether for a new backend, or a custom
+middleware component. Storage Managers must conform to a simple interface
+for creating, destroying, and recalling Units. They are free to implement
+that functionality however they like.</p>
+
+<p>As you can see in the code, the <tt>storage.StorageManager</tt> base
+class requires you to override most of its methods.</p>
+<ul>
+    <li><tt>__init__(self, allOptions={}):</tt> Optional.
+        Place any startup code here, as each SM should only be instantiated
+        once (at app startup). Any additional arguments should be passed
+        in the allOptions dictionary (rather than modifying the signature).
+        You should expect the keys and values of allOptions to be strings.
+        </li>
+    <li><tt>reserve(self, unit):</tt> Required. Take the supplied Unit
+        instance and "make a space" for it in storage. The Unit does
+        not need to be fully populated. If the Unit has an ID when
+        passed to <tt>reserve</tt>, use it. If not, supply it using
+        the class' UnitSequencer. If your database provides equivalent
+        sequencing to dejavu Sequencers, feel free to use it. If not,
+        grab all existing distinct ID's (which you are storing),
+        and pass them to
+        <tt>unit.sequencer.assign(unit, ids)</tt>, which should assign the
+        next ID in the sequence to the Unit. Remember that when we say "ID"
+        we mean a tuple of identifier (UnitProperty attribute) values.
+        You should probably lock this whole method in a
+        <tt>threading.Lock</tt>.</li>
+    <li><tt>save(self, unit)</tt>: If <tt>not unit.dirty()</tt>, you can exit. Otherwise,
+        iterate through the Unit's properties and persist each value,
+        using an Adapter to coerce each value to the type expected by your
+        database. If you are able to persist all values,
+        call <tt>unit.cleanse()</tt> to mark the Unit as no longer dirty.
+        You are not required to persist any Unit attributes other than
+        UnitProperties.</li>
+    <li><tt>destroy(self, unit):</tt> Required. Remove the Unit's data
+        from storage permanently. For databases, this means
+        <tt>"DELETE FROM %s WHERE %s;" %
+        (table.qname, table.id_clause(**unit.properties))</tt>.</li>
+    <li><tt>recall(self, unitClass, expr=None):</tt> Required.
+        This method must return an iterable which yields fully-populated
+        Unit objects. The Units must be of the supplied unitClass, and
+        must match the Expression, if supplied. If an Expression is not
+        supplied, all stored Units of the specified class must be returned.
+        </li>
+    <li><tt>create_storage(self, unitClass):</tt> Optional. If you do not
+        override this method, it simply passes. If your Storage Manager
+        needs to set up tables or other structures per unitClass (and
+        almost all do at install time), use this method to do so.</li>
+    <li><tt>shutdown(self):</tt> Optional. If you do not override this
+        method, it simply passes. If your Storage Manager needs to be
+        explicitly closed when the application shuts down, add code to
+        do that here.</li>
+    <li><tt>distinct(self, cls, fields, expr=None):</tt> Recommended.
+        This method must return an iterable of (tuples of) distinct
+        UnitProperty values for the given field(s). The Units from which
+        the values are drawn must be of the supplied class (cls), and must
+        match the Expression (expr), if supplied. If an Expression is not
+        supplied, all stored Units of the specified class must be examined.
+        </li>
+    <li><tt>multirecall(self, classes, expr):</tt> Recommended.
+        The 'classes' argument will be a UnitJoin and its children.
+        This method must return an iterable of lists; each item in each list
+        will be a Unit. The Units must be of the supplied classes, in order
+        (see the UnitJoin.classes method), and must all match
+        expr(*resultset) together.
+        </li>
+</ul>
+
+<h4>Generic Database Wrappers</h4>
+<p>Writing a Storage Manager for a database is relatively straightforward,
+mostly because Dejavu doesn't have complicated storage interfaces or
+demands. If you find your application depends heavily upon using advanced
+features of a particular database, or upon hand-crafted SQL, then Dejavu
+is not for you or your application. A Dejavu SM module for a database
+usually includes:</p>
+<ol>
+    <li>Adapters, which coerce values from Python types to database types
+        and back again. Base classes for DB Adapters can be found in
+        <tt>dejavu.storage.db</tt>.</li>
+    <li>An SQLDecompiler, which converts dejavu <tt>Expression</tt> objects
+        (essentially, Python lambdas) into SQL.</li>
+    <li>A subclass of <tt>geniusql.Database</tt>, which handles requests to
+        SELECT data using the above two components, as well as ALTER TABLE,
+        etc.</li>
+</ol>
+
+<h5>Adapters</h5>
+<p>Generally, you will end up with three kinds of Adapters (subclasses of
+<tt>storage.Adapter</tt>): one for converting Dejavu types to your database
+types, another for the reverse (<tt>storage.db.AdapterFromDB</tt>), and
+probably a third to insert Dejavu values (with proper quoting, etc.) into
+SQL statements for your database (<tt>storage.db.AdapterToSQL</tt>).
+The Adapter class provides a single public method, <tt>coerce(self, value, 
+dbtype, pytype)</tt>, which takes any value and attempts to return a new
+value.</p>
+
+<p><tt>adapter.coerce()</tt> handles a request by calling a sibling method (that 
+is, a method of the same subclass). Therefore, you need to add methods to
+your Adapter for each Python type you wish to support. For example, if you
+wish to coerce Python ints to INTEGER, you need to add the following method
+to your Adapter subclass:
+<pre>    def coerce_int_to_any(self, value):
+        return str(value)</pre>
+Methods are named <tt>coerce_type1_to_type2</tt>, where 'type1' and 'type2'
+are type names, one of them a Python type and the other a database type.
+If your type name has dots in it, they will be converted to underscores.
+If either of the type names is 'any', that method will be used if no
+more-specific coercion method exists. Again, you can most likely use
+methods in the base Adapter classes provided.</p>
+
+<p>Your coercion method should receive a single value and return that value,
+coerced to a type. An outbound adapter coerces from Python types to database
+types. You supply a Dejavu UnitProperty value to <tt>coerce</tt>, and the
+appropriate coercion method will be selected based upon the <tt>type()</tt>
+of that value. An inbound adapter, on the other hand, coerces from DB types
+to Python types. Call <tt>coerce</tt> with your database value <i>and</i>
+the <tt>valuetype</tt> argument, which is then used to call the appropriate
+coercion method. That method returns the value, coerced to
+<tt>type(valuetype)</tt>, which the UnitProperty expects.
+
+<p>If <tt>coerce</tt> cannot find a method for the appropriate Python type,
+it errors, and rightly so. Don't let these errors pass silently! An earlier
+version of Dejavu had a "default" coercion method, which was a Bad Idea.
+Don't replicate it.</p>
+
+<h5>Decompiler</h5>
+<p>The SQLDecompiler is the tricky bit of any Storage Manager. You must
+receive a Unit class and an Expression, and produce valid SQL for your
+database from both. For example, given:
+<pre>unitClass = Things
+expr = logic.Expression(lambda x: x.Group == 3)</pre>
+...your decompiler should produce something like:
+<pre>"SELECT * FROM [djvThings] WHERE [djvThings].[Group] = 3"</pre></p>
+
+<p>The above example may seem trivial to you, but add in proper quoting,
+diverse datatypes (like dates and decimals), complex operators (like 'in',
+'Like', and 'ieq'), logic functions (like today() and iscurrentweek()),
+null queries, and just-in-time keyword args, and it becomes complex very
+quickly. You are, in effect, writing a mini-ORM.</p>
+
+<p><b>But</b>, don't despair. Dejavu provides you with tools to make this
+task easier:</p>
+<ol>
+    <li>The most important tool is <tt>geniusql.select.SQLDecompiler</tt>, a complete
+        base class. You should be able to tweak it for most databases
+        with a couple of SQL syntax changes.</li>
+    <li><tt>SQLDecompiler</tt> is built on a simple Visitor-style base
+        class, <tt>codewalk.LambdaDecompiler</tt>. More complicated
+        extensions are easily added to this base class; each bytecode in
+        the Expression (Python lambda) gets its own method call.</li>
+    <li>You don't have to handle globals or cell references within the
+        lambda--when the lambda gets wrapped in an Expression, all free
+        variables are converted to constants.</li>
+    <li>You aren't <i>forced</i> to handle every possible operator, function,
+        or term in SQL. The base SQLDecompiler doesn't; when it encounters a
+        function it can't handle, for example, it punts by flagging the SQL
+        as <i>imperfect</i>. This signals the Storage Manager to run each
+        Unit through the lambda (in pure Python) before yielding it back to
+        the caller. In fact, you can start writing your Storage Manager
+        without a decompiler at all! Just return all stored Units of the
+        given class and use the Expression to filter whole Units. Then,
+        when your SM works, add a decompiler.</li>
+</ol>
+
+
+<h5>Database/Table/IndexSet</h5>
+<p>You'll need a subclass of <tt>geniusql.Database</tt>. Override the
+container methods (like <tt>__setitem__</tt> and <tt>__delitem__</tt>).
+For most popular databases, these are pretty straightforward. Some notes:</p>
+<ul>
+    <li><b>select/where</b>: If no Expression is supplied, return all Units.
+        Otherwise, use a decompiler to produce SQL which you can then use
+        to grab Unit data from storage. Use each row to populate a Unit
+        (use an Adapter for type coercion), and yield each Unit back to the
+        caller. In general, it's faster to slurp all the data in at once
+        than to make a separate call for each row.</li>
+    <li><b>_get_tables/_columns/_indices</b>: use your database's
+        schema-inspection tools to tell Dejavu the names, datatypes,
+        and other metadata that actually exists in each deployed
+        database.</li>
+</ul>
+
+<p>Database SM's should also define the methods <tt>create_database()</tt>
+and <tt>drop_database()</tt>, if possible.</p>
+
+<p>Use <tt>dejavu/test/zoo_fixture.py</tt> to test your new Storage
+Manager. Copy one of the (<i>very</i> short) test_store* modules for the
+other SM's, and make the necessary changes for your SM. All of the heavy
+lifting of the tests is done in zoo_fixture.</p>
+
+<h4>Legacy Database Wrappers</h4>
+<p>Sometimes you do not have complete control over the database you want to
+reference. In that case, you should probably still write a custom Storage
+Manager, Adapters, and a Decompiler. Often, you can get away with providing
+a simple column-to-Unit mapping to use as you decompile. I've built one, for
+example, to wrap <a href='http://www.blackbaud.com/solutions/raisersedge.asp'>The
+Raiser's Edge</a> (third-party fundraising software). My Dejavu model manages
+directory records and income without regard for the underlying database;
+a custom Storage Manager maps between that ideal model and the Raiser's
+Edge API. This allows me to integrate data from RE with our custom
+inventory, invoice, and scheduling software.</p>
+
+<p>One of the more important parts of wrapping existing tables is getting
+your pretty Python names mapped to ugly database names. Do this by making
+a custom Database: override the <tt>_column_name</tt> and
+<tt>table_name</tt> methods to do the mapping.</p>
+
+<h4>Other Serialization Mechanisms</h4>
+<h5>sockets</h5>
+<p>There's a <tt>sockets</tt> module in the <tt>storage</tt> package.
+It does simple serialization of Units across a socket, so you can run
+Dejavu in its own process, separate from your front end. I had to do this
+with a third-party database, which couldn't handle web-traffic threading
+models. Here's a snippet of how to use it (from that app):
+<pre>def query(self, cmd, unitType='', data=None):
+    if isinstance(data, dejavu.Unit):
+        data = stream(data)
+    elif data is None:
+        data = ''
+    else:
+        data = pickle.dumps(data)
+    response = self.socket.query(":".join((cmd, unitType, data)))
+    return response
+</pre>
+</p>
+
+</body>
+</html>

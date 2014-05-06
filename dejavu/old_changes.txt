@@ -1,0 +1,131 @@
+9/22/04: Moved code into Subversion repository. Changes now managed in SVN log.
+
+1.2.3 (9/3/04):
+    1. Decoupled construction of stores from arena._load() into add_store().
+    2. Exceptions in SocketServer now get passed back to the calling app
+        and reraised.
+    3. Fixed nasty latent bug where engine FILTER rules weren't filtering
+        if the set already had elements; it would just pass through every
+        existing element without evaluating them against the filter operand.
+    4. Wrote dejavu.analysis.py, which provides aggregation and analysis
+        tools to dejavu applications. Moved dejavu.unit_sort to analysis.sort.
+    5. storeado.CALL_FUNCTION failed on some logic functions. If the func
+        object was stored in co_consts, it would error on .endswith. Now
+        falls through, setting imperfect, so dejavu can test with the lambda.
+
+1.2.2 (8/18/04):
+    1. Changed storage/sockets to use blocking sockets, resulting in a 40% speedup.
+    2. Use faster CPickle if possible in sockets, storeado, engines.
+    3. Moved on_forget calls after the unit is forgotten. All known use
+        cases are OK with this; some needed it to update parent sums.
+
+1.2.1 (8/10/04):
+    1. Got rid of unit.has(), which didn't fit the new unit formation process.
+    2. Rewrote CachingProxy.sweep() to destroy temporary units (which rolls
+        back the reserve(), in effect).
+    3. CachingProxy.shutdown duplicated sweep_all().
+    4. Sandbox was setting Unit.dirty = False on recall; that should be left
+        to SM's, since they might cache Units.
+    5. storeado.AdapterToADOFields.coerce_datetime() didn't trap
+        value == None (tried to add None + None).
+
+1.2.0 (8/9/04):
+    1. Sandbox.forget had a NameError: store = self.arena.storage(cls)
+    2. Storage.CachingProxy.sweep errored on some _recallTimes[id]
+    3. for job, project in recall(Job, [expr, [Project, [expr]]]).
+        Recalls associated Units in a single SM query.
+    4. Added a special case for Expression(lambda x: x.ID == CONST),
+        to save the database hit if it's found in the cache.
+    5. Profiling: Changed storeado.py, storage/sockets.py to set
+        unit._properties directly to save __set__ overhead (which isn't
+        really needed until the unit is concrete).
+    7. Profiling: added unit._property_types for faster lookup.
+    8. After profiling, added _co_code_attrs to codewalk because dir() was so slow.
+
+1.2.0 RC (8/5/04):
+    1. Did another big rework. Sandboxes now use straight dicts for caching
+        Units, and are never shared across requests. Any sharing has been
+        pushed into subclasses of StorageManager, for example, CachingProxy.
+        This should also give us the framework to write multi-Unit recall.
+    2. Given the new chainable StorageManagers, added "Load Order" and
+        "Shutdown Order" to config options.
+    3. Merged config "Cache" sections with "StorageManager" sections (since
+        there are no more Cache classes).
+    4. Changed arena.roster to be a Prism; removed RegisteredUnitClass class.
+
+1.1.3 (7/30/04):
+    1. Dang. Forgot to have memorize() set dirty with all the refactoring.
+    2. Times and datetimes not being saved correctly (math/parens typo).
+    3. Times and datetimes not being retrieved correctly due to naive
+        rounding of times, which are fractional.
+
+1.1.2 (7/29/04):
+    1. Change storeado to drop UnitCollection tables instead of emptying them;
+        this makes modifying the type of the ID column easier.
+    2. engines.take_snapshot(): nontemp Engines now create temp snapshots.
+    3. UnitEngine.on_repress removed--it isn't necessary.
+
+1.1.1 (7/28/04):
+    1. storeado was failing on load_collection when looking up class.
+    2. storeado wasn't retrieving currencies correctly (lost fractions).
+
+1.1.0 (7/27/04):
+    1. storeado.load_collection had a bug setting idtype.
+    2. Added shutdown() to Storage Managers.
+
+1.1.0 RC (7/26/04):
+    1. distinct() functions at sandbox, cache, storage levels.
+    2. Completely reworked caching mechanism so apps could flush caches
+        after each request (which turns out to be most efficient for
+        web apps, rather than having each thread serialize access to
+        shared caches). UnitServer is gone, and Unit caches are now owned
+        by Sandboxes, which are doled out to apps.
+    3. Sandbox attribute of Units gets set on memorize, not init. No more
+        Unit.memorize(); instead, it's sandbox.memorize(unit), and any
+        custom unit code that was in overridden Unit.memorize functions
+        now needs to be in Unit.on_memorize().
+    4. storeado.save_collection: Unit.ID.type was not being detected
+        correctly; hence no save of UnitCollections.
+
+1.0.3 (7/21/04):
+    1. Since cache wasn't being indexed anyway, went back to a plain dict.
+    2. Added an option to storeado to create a new ADO Connection
+        for each thread. Doesn't seem to make a difference on speed.
+    3. Added UnitServerWeakref.
+    4. Units were being saved on repress() even if not dirty.
+    5. Changed default UnitServer to no cache. UnitServerCaching should
+        be considered broken until its cache management can be made
+        thread-safe (that is, it's far too slow because it has to
+        synchronize every recall).
+    6. Modified Arena to handle unit class->server mappings more
+        statically, with a 'roster' dictionary. ALL unit classes must
+        now be registered via arena.register() or .associate().
+    7. Made Unit.server an attribute, set at __init__, rather than
+        a method. Consequently, was able to remove some of the litmus
+        testing done in UnitServer methods--the litmus should be tested
+        long before those calls; i.e., when arena.roster is populated.
+
+1.0.2 (7/19/04):
+    1. Reworked recall by removing Recallers completely. Big speedup.
+
+1.0.1 (7/16/04):
+    1. Added the COPY rule to engines.py.
+
+codewalk.py 0.3.1 (4/29/04):
+    1. Added KeywordInspector.
+    2. Made LambdaDecompiler use function __name__, not repr() (early
+        binding makes e.g. datetime.date into <type datetime.date>).
+    3. Added safe_tuple.
+    4. Added TaintableStack.maxsize to help stack calculation.
+    5. Forgot to call deref_cell from visit_LOAD_DEREF! D'oh!
+    6. Put visit_ methods in alpha order.
+    7. Added name_index to Rewriter.
+    8. Got rid of extra args to EarlyBinder.
+    9. Added reduction of getattr to EarlyBinder as an option.
+    10. Combined 'ands' and 'ors' into 'targets' in LambdaDecompiler.
+    11. Fixed parenthesis problems in LambdaDecompiler.
+    12. Added BranchTracker class.
+
+Prior to July 2004, Dejavu was integrated with a Python application
+framework, which is now called "Cation". Development on the
+previously-integrated project began in September 2003.

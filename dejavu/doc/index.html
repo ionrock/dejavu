@@ -1,0 +1,160 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Table of Contents</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+</head>
+
+<body>
+
+<h2>Table of Contents</h2>
+
+<ol>
+<li><a href='intro.html'>Introduction</a>
+    <ul>
+    <li>Basic Structure</li>
+    <li>Simple Example</li>
+    <li>Design Goals</li>
+    <li>Obtaining and Installing</li>
+    <li>Compared To Other Database Wrappers</li>
+    </ul>
+</li>
+<li><a href='modeling.html'>Application Designers: Using Dejavu to construct a model</a>
+    <ul>
+    <li><a href='modeling.html#units'>Units</a>
+        <ul>
+        <li>UnitProperty</li>
+        <li>Unit ID's</li>
+        <li>Creating and Populating Properties</li>
+        <li>Unit Properties are First-Class Objects</li>
+        <li>Triggers</li>
+        <li><a href='modeling.html#registering'>Registration of Unit Classes</a></li>
+        <li><a href='modeling.html#synchronizing'>Synchronizing the Model</a></li>
+        </ul>
+    </li>
+    <li><a href='modeling.html#associations'>Associations between Unit Classes</a>
+        <ul>
+        <li><tt>Unit.add()</tt></li>
+        <li>"Related units" methods</li>
+        <li>Custom Unit Associations</li>
+        <li><a href='modeling.html#many-to-many'>Many-to-many Associations</a></li>
+        </ul>
+    </li>
+    <li><a href='modeling.html#schemas'>Managing Schemas</a>
+        <ul>
+        <li>Conflicts</li>
+        <li>Installation</li>
+        <li>Modifying Storage Structures</li>
+        <li>Upgrading: Schema Objects</li>
+        <li>Versions: The DeployedVersion Unit</li>
+        </ul>
+    </li>
+    <li><a href='modeling.html#autoclass'>Automatic Unit Classes</a></li>
+    </ul>
+</li>
+<li><a href='managing.html'>Application Developers: Managing Units</a>
+    <ul>
+    <li><a href='managing.html#sandboxes'>Sandboxes</a>
+        <ul>
+        <li><a href='managing.html#memorize'>Memorizing Units</a></li>
+        <li>Sequencing</li>
+        <li>Recalling</li>
+        <li>Forgetting and Repressing</li>
+        <li>Flushing Sandboxes</li>
+        <li>Views</li>
+        <li>Transactions</li>
+        </ul>
+    </li>
+    <li><a href='managing.html#Querying'>Querying</a>
+        <ul>
+        <li>The <tt>Expression</tt> class</li>
+        <li>Early binding</li>
+        <li>External functions within Expressions</li>
+        <li>Using <tt>filter</tt> to form Expressions</li>
+        <li>Using <tt>comparison</tt> to form Expressions</li>
+        <li>Combining Expressions</li>
+        <li>Exporting the <tt>logic</tt> module</li>
+        </ul>
+    </li>
+    <li><a href='managing.html#Engines'>Unit Engines</a>
+        <ul>
+        <li>Collections</li>
+        <li>Engines</li>
+        <li><a href='managing.html#unitenginerules'>Rules</a></li>
+        <li>Engine functions</li>
+        </ul>
+    </li>
+    <li>Analysis Tools
+        <ul>
+        <li>Sorting Units</li>
+        <li>Cross-tabulation</li>
+        </ul>
+    </li>
+    </ul>
+</li>
+<li><a href='storage.html'>Deployers: Configuring Storage</a>
+    <ul>
+    <li><a href='storage.html#databases'>Database Storage Managers</a>
+        <ul>
+        <li>ADO: Microsoft SQL Server / Microsoft Access (Jet)</li>
+        <li>PostgreSQL (pyPgSQL)</li>
+        <li>PostgreSQL (psycopg2)</li>
+        <li>MySQL</li>
+        <li>SQLite</li>
+        <li>Common Database Configuration Entries</li>
+        </ul>
+    </li>
+    <li><a href='storage.html#other'>Other Storage Managers</a>
+        <ul>
+        <li>RAM</li>
+        <li>Memcached</li>
+        <li>JSON</li>
+        <li>Shelve</li>
+        <li>Folders</li>
+        </ul>
+    </li>
+    <li><a href='storage.html#middleware'>Middleware</a>
+        <ul>
+        <li>Object Cache</li>
+        <li>Aged Cache</li>
+        <li>Burned Cache</li>
+        </ul>
+    </li>
+    <li><a href='storage.html#partitioning'>Partitioning</a>
+        <ul>
+        <li>Vertical Partitioner</li>
+        </ul>
+    </li>
+    <li><a href='storage.html#comparison'>Comparison Chart</a></li>
+    </ul>
+</li>
+<li><a href='advanced.html'>Advanced Topics</a>
+    <ul>
+    <li>Subclassing Sandbox</li>
+    <li>Store Hacking</li>
+    <li>Passing through SQL</li>
+    <li>Custom Storage Managers
+        <ul>
+        <li>Generic Database Wrappers
+            <ul>
+            <li>Adapters</li>
+            <li>Decompiler</li>
+            <li>Database/Table/Column</li>
+            </ul>
+        </li>
+        <li>Legacy Database Wrappers</li>
+        <li>Other Serialization Mechanisms
+            <ul>
+            <li>sockets</li>
+            </ul>
+        </li>
+        </ul>
+    </li>
+</li>
+</ol>
+
+</body>
+</html>

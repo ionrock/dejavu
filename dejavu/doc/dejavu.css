@@ -1,0 +1,85 @@
+
+body, html {
+    font: 10pt "Verdana", "Arial", "sans-serif";
+    color: black;
+}
+
+body { padding: 0.75em; }
+
+h1 {
+    font: 900 2em "Times New Roman", "serif";
+    color: black;
+    background-color: #99CCFF;
+    border: 1px solid #000033;
+}
+
+h2 {
+    text-align: center;
+}
+
+h3 {
+    font: 600 1.4em "Arial", "sans-serif";
+    color: black;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    background-color: #CCDDFF;
+    border: 1px solid #000033;
+    padding: 0.5em;
+}
+
+h4 {
+    font: 600 1.2em "Arial", "sans-serif";
+    color: black;
+    margin-bottom: 0px;
+}
+
+table {
+    border: 1px solid black;
+    border-collapse: collapse;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 1em;
+    margin-bottom: 1em;
+}
+
+th {
+    font: bold 110% "Tahoma", "Verdana", "sans-serif";
+    color: #000088;
+    padding: 0.25em;
+    vertical-align: bottom;
+    border: 1px solid black;
+    margin: 0px;
+}
+
+td {
+    border: 1px solid black;
+    margin: 0px;
+    vertical-align: top;
+    padding: 0.25em;
+}
+
+li {
+    margin-top: 0.35em;
+    margin-bottom: 0.35em;
+}
+
+pre {
+    margin-left: 3em;
+    padding: 0.5em;
+}
+
+tt.def {
+    border: 1px solid #CCCCFF;
+    background-color: #F8F8FF;
+    padding: 0 1px;
+}
+
+p.warning {
+    border: 1px solid red;
+    padding: 1em;
+}
+
+p.warning b {
+    color: #993333;
+}
+

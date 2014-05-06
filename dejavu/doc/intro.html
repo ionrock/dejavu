@@ -1,0 +1,329 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Introduction</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+</head>
+
+<body>
+
+<h2>Introduction</h2>
+
+<p>Dejavu is a thread-safe Object-Relational Mapper for Python applications.
+It is designed to provide the "Model" third of an MVC application. When you
+build an application using Dejavu, you must supply the Controller(s) and
+View(s) yourself. Dejavu does not provide these, and does its best to not
+limit your choices regarding them.</p>
+
+<p>If you're familiar with Martin Fowler's work <a href='#fowler'>[1]</a>,
+you can think of Dejavu as providing a Data Source layer, plus the tools
+to write your own Domain layer. For the Presentation layer, you're on your
+own. ;) It primarily uses a generic Data Mapper architecture (as opposed
+to the more tightly-coupled Active Record architecture).</p>
+
+<h3>Basic Structure</h3>
+<p>Developers build their Model by creating classes which subclass
+<tt>dejavu.Unit</tt>; in RDBMS terminology,
+each Unit subclass corresponds to a table; instances of the class
+correspond to the rows. Each subclass possesses a set of attributes known
+as "properties", which you can think of as columns in your database
+table. These attributes are generally formed from a <tt>UnitProperty</tt>
+descriptor. Any Unit data which needs to be persisted ought to be contained
+in a Unit Property. However, Unit classes can also possess arbitrary
+methods and attributes which aid their use within the application.</p>
+
+<p>Unit classes can be <i>associated</i> to other Unit classes. This means
+that one of the properties of UnitA maps to one of the properties of UnitB.
+Related objects may then be looked up more easily.</p>
+
+<p>Units are managed in memory by <tt>Sandbox</tt> objects, which function
+as "Identity Maps" <a href='#fowler'>[1]</a>: in-memory caches of Units
+which keep commit conflicts to a minimum. Unit objects can be "memorized"
+and "recalled" from a <tt>Sandbox</tt>, using pure Python lambda expressions
+<a href='#cpython'>[2]</a> as a query language. The lambda is wrapped
+in an <tt>Expression</tt> object to make it portable.</p>
+
+<p>Sandboxes persist Unit data by <tt>StorageManager</tt> objects. Each
+persistence mechanism has its own subclass of the <tt>StorageManager</tt>
+class; for example, persisting Unit data to a Microsoft SQL Server database
+requires a <tt>StorageManagerADO_SQLServer</tt> object. When recalling data,
+Storage Managers receive Expression objects; database SM's, for example,
+will typically examine these Expressions and produce SQL statements from
+them, which they then use to retrieve data. Storage Managers also handle
+the creation of new Units, and their destruction.</p>
+
+<p>Finally, Dejavu provides <tt>StorageManager</tt> classes which you should
+be able to leverage for any sort of application you are building. There are
+Storage Managers for Postgres, MySQL, SQL Server and other databases, as
+well as partitioners, caching adapters, file storage adapters, etc. You can
+use any of them as a top-level "Application" object, collecting the global
+settings for an application into one place. A StorageManager doles out
+Sandboxes, maintains a registry of Units and their associations, and
+manages startup and shutdown operations.</p>
+
+
+<h3>Simple Example</h3>
+
+<p>Since a block of code is often worth a thousand words, here's a minimal
+example of a Dejavu application:</p>
+
+zookeeper.py
+<pre>from dejavu import Unit,UnitProperty,storage
+import os
+import dejavu
+
+class Zoo(Unit):
+    Name = UnitProperty()
+    Size = UnitProperty(int)
+    
+    def total_legs(self):
+        return sum([x.Legs for x in self.Animal()])
+
+class Animal(Unit):
+    Legs = UnitProperty(int, default=4)
+Animal.set_properties({"Name": unicode,
+                       "ZooID": int,
+                       })
+Animal.many_to_one('ZooID', Zoo, 'ID')
+
+# Set up a Storage Manager.
+dbfile = 'test.sqlite'
+conf = {'Database': dbfile}
+store = storage.resolve('sqlite', conf)
+store.register_all(globals())
+
+if os.path.exists(dbfile):
+    store.map_all(conflicts='error')
+else:
+    store.create_database()
+    store.map_all(conflicts='repair')
+        
+    box = store.new_sandbox()
+    zoo = Zoo(Name='San Diego Zoo', Size=38)
+    box.memorize(zoo)
+    for i in range(10):
+        animal = Animal(Name="Animal %d" % i, Legs=4)
+        box.memorize(animal)
+        zoo.add(animal)
+    box.flush_all()
+    print box.recall(Animal)
+
+if __name__ == "__main__":
+    box = store.new_sandbox()
+    print box.recall(Animal)
+</pre>
+
+<p>The above creates the model for the zookeeper application.
+There are three basic things happening:
+    <ol>
+        <li>The <tt>Zoo</tt> and <tt>Animal</tt> classes, which subclass
+            <tt>dejavu.Unit</tt>. These will correspond to the Zoo and
+            Animal tables within the database. Notice the two different
+            methods of declaring Unit properties. Each class also inherits
+            an 'ID' property (an int) from <tt>dejavu.Unit</tt>.</li>
+        <li>The association between the Animal class and the Zoo class
+            (many-to-one).</li>
+        <li>The setup of a dejavu <tt>StorageManager</tt> object which
+            uses a Microsoft Access (Jet) database.</li>
+    </ol>
+</p>
+
+<p>Here's a simple interactive session which uses the above (assume that
+the database and tables have been created and populated elsewhere):</p>
+
+<pre>>>> import zookeeper
+>>> box = zookeeper.root.new_sandbox()
+>>> box.recall(zookeeper.Animal)
+[&lt;zookeeper.Animal object at 0x013281F0>, &lt;zookeeper.Animal object at 0x01328150>,
+ &lt;zookeeper.Animal object at 0x01328130>, &lt;zookeeper.Animal object at 0x01328230>]
+>>> box.recall(zookeeper.Zoo)
+[]
+>>> zoo = zookeeper.Zoo(Name='San Diego Zoo', Size='38')
+>>> box.memorize(zoo)
+>>> zoo.ID
+1
+>>> box.unit(zookeeper.Zoo, ID=1) is zoo
+True
+>>> for creature in box.recall(zookeeper.Animal):
+        zoo.add(creature)
+>>> len(zoo.Animal())
+4</pre>
+
+
+<h3>Design Goals</h3>
+
+<p>Dejavu is designed to function in environments with complex integration
+needs, and tends to separate concerns as much as possible. In particular,
+Dejavu tries to avoid making decisions in the framework which are better
+left to developers. Some of those decisions are:
+    <ul>
+        <li>User interface. Dejavu works well in all sorts of applications,
+            whether desktop, thin-client or web.</li>
+        <li>Application package architecture. You can place your application
+            within a single Python module, develop complete packages,
+            or use Dejavu inside a larger framework.</li>
+        <li>Which types to use for <tt>Unit</tt> properties. Builtin types
+            are fully supported out of the box, including datetime and
+            decimal. Tim Peters' excellent <tt>fixedpoint</tt> module
+            is also available. New types are easily added.</li>
+        <li>Which keys to use when associating <tt>Unit</tt> classes.</li>
+        <li>What to name identifiers.</li>
+    </ul>
+
+In the same way, Dejavu tries to avoid having developers make decisions
+which are better left to deployers. Some of those decisions are:
+    <ul>
+        <li>Where (and how) to log error messages.</li>
+        <li>Which storage mechanism (database or ...?) to use. In particular,
+            deployers are allowed to mix and match stores, including how
+            and when to cache objects in memory. Dejavu tries to make
+            it easy for <i>deployers</i> to tune applications to their
+            particular environment.</li>
+    </ul>
+</p>
+
+<p>Unlike most generic storage wrappers, Dejavu does not <i>require</i> you
+to have complete control of your back end. For example, consider Mission
+Control, the first application built on Dejavu. Mission Control required
+an ORM which transparently supported two very different backends. Half of
+the data was to be stored in an MS Access database,
+over which the application developers had full control.
+But half of the data was stored in a third-party application, "The Raiser's
+Edge" (RE) from Blackbaud. RE provides read-only database access; all writes
+must go through their object-oriented API. Further, reading via that API was
+found to be too slow. Therefore, a custom Storage Manager (about 2500 lines
+of code) was developed, which searches for and loads objects via SQL, but
+writes Unit data via the REAPI. Dejavu allows the application logic to be
+completely ignorant of this complex mass of storage details. If Blackbaud
+closed its doors tomorrow, the solution could be quickly migrated to another
+data store; business downtime is reduced in the face of inevitable change.<p>
+
+<h3>Obtaining and Installing</h3>
+
+<p>You can obtain Dejavu from its Subversion repository at
+<tt>http://projects.amor.org/dejavu/svn/trunk</tt>. Dejavu is designed to be
+installed in <tt>site-packages/dejavu</tt> or some other root python
+path.</p>
+
+<p>Dejavu was built using Python 2.3.2. You should probably use
+at least 2.3; Dejavu depends upon the <tt>datetime</tt> module.
+Although Dejavu <i>supports</i> additional modules like
+<tt>fixedpoint</tt> and <tt>decimal</tt>, it does not <i>require</i>
+them.</p>
+
+<p>Dejavu uses bytecode hacks, and therefore requires CPython
+<a href='#cpython'>[2]</a>.</p>
+
+<h3>Compared To Other Database Wrappers</h3>
+<h4>SQLObject</h4>
+<p>No matter what project I start on, odds are I'll discover that Ian
+Bicking has already done the same thing, usually better.
+<br />See http://blog.ianbicking.org/another-less-sleepy-alternative-to-hibernate.html
+<br />Which was a reply to Ruby's ActiveRecord:
+http://www.loudthinking.com/arc/000297.html
+<br />Which was a reply to Java's Hibernate:
+http://informit.com/guides/content.asp?g=java&seqNum=127&f1=rss</p>
+
+<p>Using dejavu, the application developer supplies the following code
+to define the Units and their relationships:</p>
+
+<pre>from dejavu import *
+import fixedpoint   # or decimal, for Python 2.4+
+import datetime
+
+class Book(Unit):
+    # The ID field is already set to 'int' for all Unit subclasses.
+    title = UnitProperty(str)
+    price = UnitProperty(fixedpoint.Fixedpoint)
+    publishDate = UnitProperty(datetime.datetime)
+    publisher = UnitProperty(int)
+    
+    def addAuthor(self, author):
+        a = Authorship(authorID=author.ID, bookID=self.ID)
+        self.sandbox.memorize(a)
+    
+    def author_names(self):
+        names = []
+        for authorship in self.Authorship():
+            author = authorship.Author()
+            if author:
+                names.append(author.name)
+        return u', '.join(names)
+
+class Publisher(Unit):
+    name = UnitProperty(str)
+
+class Author(Unit):
+    name = UnitProperty(str)
+
+class Authorship(Unit):
+    authorID = UnitProperty(int)
+    bookID = UnitProperty(int)
+
+Book.many_to_one('publisher', Publisher, 'ID')
+Authorship.many_to_one('bookID', Book, 'ID')
+Authorship.many_to_one('authorID', Author, 'ID')
+
+root = storage.resolve("mysql", conf)
+root.register_all(globals())
+</pre>
+
+
+<p>The deployer would write in a .conf file:</p>
+<pre>[Books]
+Class: dejavu.storage.storepypgsql.StorageManagerPgSQL
+Connect: host=localhost dbname=bookstore user=postgres password=****</pre>
+
+<p>To create the tables:</p>
+<pre>root.create_database()
+for cls in (Author, Publisher, Book):
+    root.create_storage(cls)</pre>
+
+<p>The app developer's runtime code reads as follows:</p>
+<pre>
+box = root.new_sandbox()
+ppython = Book(title='Programming Python', price=20,
+               publishDate=datetime.datetime(2001, 3, 1))
+# This next line is redundant; all properties default to None.
+# But explicitness is rarely a bad thing.
+ppython.publisher = None
+box.memorize(ppython)
+
+print ppython.title # output: 'Programming Python'
+
+mlutz = Author(name = 'Mark Lutz')
+box.memorize(mlutz) # give mlutz an ID
+ppython.addAuthor(mlutz)
+
+print len(ppython.Authorship()) # output: 1
+print ppython.author_names() # output: 'Mark Lutz'
+
+oreilly = Publisher(name="O'Reilly")
+box.memorize(oreilly) # give oreilly an ID
+
+ppython.publisher = oreilly.ID
+print ppython.Publisher().name # output: "O'Reilly"
+
+print len(oreilly.Book()) # output: 1
+
+print 'Hi,', oreilly.Book().author_names() # output: "Hi, Mark Lutz"
+</pre>
+</p>
+
+<hr />
+
+<p><a name='fowler'>[1]</a> Fowler,
+<a href='http://www.martinfowler.com/eaaCatalog/identityMap.html'>Patterns
+of Enterprise Application Architecture</a>.<br />
+<a name='cpython'>[2]</a> Dejavu relies upon bytecode hacking to achieve
+its clean lambda syntax for data queries. Therefore, it is CPython-specific.
+In addition, the bytecode of Python may change from one version of Python
+to another; if you find your version of Python does not work with Dejavu's
+<tt>codewalk</tt> and <tt>logic</tt> modules, please let me know.<br />
+</p>
+
+</body>
+</html>

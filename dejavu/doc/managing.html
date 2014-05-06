@@ -1,0 +1,963 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Managing Units</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+</head>
+
+<body>
+
+<h2>Application Developers: Managing Units</h2>
+
+<a name='sandboxes'><h3>Sandboxes</h3></a>
+<p>During the life of a client connection, your application should create
+and use a <tt>Sandbox</tt> to manage the set of "live" Units. A Sandbox
+manages the in-memory lifecycle of Units: creation, identity, mutation, and
+destruction. Sandboxes route persistence operations on Units to the correct
+Storage Manager.</p>
+
+<p>You can create Sandbox objects directly. They take a single argument, a
+<tt>StorageManager</tt> object. All Storage Managers also provide a
+convenience function, <tt class='def'>new_sandbox</tt>, which does this
+for you. The following lines are equivalent:
+<pre>box = dejavu.Sandbox(store)
+
+box = store.new_sandbox()</pre>
+You might often choose the latter when you have a reference to the store,
+and would rather avoid importing dejavu yet again just to obtain
+the Sandbox class.</p>
+
+<a name='memorize'><h4>Memorizing Units</h4></a>
+<p>When you create a Unit instance, it exists in isolation. There is no
+connection between that Unit and storage; your Unit will not be persisted,
+because Dejavu doesn't yet possess a reference to your Unit. To provide
+that link, you <i>memorize</i> your Unit (or rather, you tell your Sandbox
+to memorize it):
+<pre>class Publisher(Unit):
+    City = UnitProperty(unicode)
+
+p = Publisher(ID='Walter J. Black')
+box.memorize(p)</pre></p>
+
+<p>Memorization does several things. First, it places your new Unit into
+your store. That Unit instance will now be persisted by the appropriate
+Storage Manager. It can be recalled from storage when needed, using the
+built-in Expression syntax. It may have been given an ID (see
+<u>Sequencing</u>, below). Memorization also makes your Unit
+<i>concrete</i>; that is, your Unit will now possess a <tt>sandbox</tt>
+attribute. Units whose <tt>sandbox</tt> attribute is not set (is None)
+have no relationships, and their Unit Property triggers (if any) will
+not fire.</p>
+
+<p>You may define special methods on your Units to provide start-of-life
+behaviors. If a Unit possesses an <tt>on_memorize</tt> method, it will
+be called after the Unit has been 'reserved' in storage and placed in
+the Sandbox cache.</p>
+
+<h4>Sequencing</h4>
+<p>Every <tt>Unit</tt> has one or more identifiers. The default ID property
+is of type <tt>int</tt>; however, you can override that to whatever type
+you like. As long as you provide your own identifier values for Units,
+nothing will break--you can memorize and recall Units without problems.
+However, if you memorize a Unit with an ID of <tt>None</tt>, the store
+may attempt to provide an ID for it.</p>
+
+<p>The <tt>Unit</tt> base class possesses a <tt>sequencer</tt> attribute
+to help Sandboxes generate new IDs. The default value is an instance of
+<tt>UnitSequencerInteger</tt>, which examines all existing Units, finds
+the maximum integer ID, adds 1, and uses that value for the new ID.
+[StorageManagers are free to optimize any sequencer, whether builtin or
+custom, in order to take advantage of ID-generation tools in the database
+or other storage provider. All builtin database StorageManagers optimize
+UnitSequencerInteger in this way.]</p>
+
+<p>The other useful Sequencer is the base class <tt>UnitSequencer</tt>,
+which simply raises an error when asked to generate an ID. If you set
+<tt>ClassA.ID</tt> to a string or unicode type, you'll probably want to set
+<tt>ClassA.sequencer = dejavu.UnitSequencer()</tt>, and form ID values
+in your own code.</p>
+
+<h4>Recalling</h4>
+<p>Once you have memorized a Unit or two, you will probably want to
+recall them at some point. Sandboxes possess four member functions to
+accomplish this.</p>
+
+<a name='recall'><h5>recall()</h5></a>
+<p>First, the appropriately named
+<tt class='def'>recall(cls, expr=None, order=None, limit=None, offset=None)</tt>
+function. This is the full-blown query method. As a first argument, you
+pass it the class (<b>not</b> the name of the class, but the actual class)
+of which you expect to retrieve instances. The second argument should be
+a lambda or an instance of <tt>dejavu.logic.Expression</tt> (an object which
+encapsulates your specific query, see <a href='#Querying'>Querying</a>).
+Alternately, you may supply a dict, which will then be combined into an
+Expression for you (using <a href='#filter'><tt>logic.filter</tt></a>).
+The following three examples are equivalent and all result in the same output:
+<pre>>>> units = box.recall(Book, dict(Year=1928))
+>>> units = box.recall(Book, lambda x: x.Year == 1928)
+>>> units = box.recall(Book, logic.Expression(lambda x: x.Year == 1928))
+>>> [x.Title for x in units]
+[u'The Giant Horse of Oz', u'Kai Lung Unrolls His Mat',
+ u'Tarzan, The Lord of the Jungle']
+</pre>
+If you do not supply an expression, all Units of the
+given Unit class will be retrieved in a list.</p>
+
+<p>If your Unit class defines an <tt>on_recall()</tt> method, it will be
+called when each Unit has been loaded from storage (at the end of the
+recall process). Once the unit is loaded into a Sandbox, however,
+<tt>on_recall</tt> will not be called again; it's only called at the
+Sandbox/SM boundary. If <tt>on_recall</tt> raises <tt>UnrecallableError</tt>,
+the unit will not be yielded back to the caller, nor placed in the Sandbox
+cache.</p>
+
+<a name='joins'><h5>Recalling multiple classes at once (JOINs)</h5></a>
+
+<p>In addition to providing a single class to <tt>recall</tt>, you have
+the option of providing a tree of classes, a nested set of
+<tt class='def'>UnitJoin(class1, class2, leftbiased=None)</tt>
+instances.</p>
+
+<p>The "leftbiased" argument specifies how the results will be joined:</p>
+
+<table>
+<tr>
+    <th>leftbiased</th>
+    <th>Join&nbsp;Type</th>
+    <th>Description</th>
+    <th>Operator</th>
+</tr>
+<tr>
+    <td>None</td>
+    <td>Inner Join</td>
+    <td>All related pairs of both classes will be returned.</td>
+    <td><tt>&</tt> or <tt>+</tt></td>
+</tr>
+<tr>
+    <td>True</td>
+    <td>Left Join</td>
+    <td>All related pairs of both classes will be returned. In addition,
+        if any Unit in class1 has no match in class2, we return a single
+        row with Unit1 and a "null Unit" (a Unit, all of whose properties
+        are None).</td>
+    <td><tt>&lt;&lt;</tt></td>
+</tr>
+<tr>
+    <td>False</td>
+    <td>Right Join</td>
+    <td>All related pairs of both classes will be returned. In addition,
+        if any Unit in class2 has no match in class1, we return a single
+        row with a "null Unit" (a Unit, all of whose properties are None)
+        and Unit2.</td>
+    <td><tt>&gt;&gt;</tt></td>
+</tr>
+</table>
+
+<p>Look hard? Fear not. There's a <b>much</b> easier way to join units than
+writing a big tree of UnitJoins. Use the &amp;, &lt;&lt;, and &gt;&gt;
+operators directly with Unit classes:</p>
+
+<pre>tree = (Book &lt;&lt; Publisher) & Author</pre>
+
+<p>This example will automatically produce a UnitJoin tree for you,
+with Book 'left joined' to Publisher, and then 'inner joined' to
+Author.</p>
+
+<p>When you provide multiple classes, the <tt>recall</tt> method returns
+a list of rows. Each row will be a list of units, one per class in the
+<tt>classes</tt> arg. The <tt>expr</tt> arg should be a lambda or
+<tt>logic.Expression</tt> which can evaluate all of the units in any
+given row at once (you cannot use a dict expr with multiple classes).
+
+<pre>for pub, book in box.recall(Publisher & Book, lambda p, b: p.ID == 4)</pre>
+
+This example will retrieve a series of [Publisher, Book] pairs.
+Note that all three constructs (the UnitJoins, the lambda arguments, and
+the resulting rows) have the same classes listed in order from
+left to right.</p>
+
+<p>In database terminology, this technique performs a series of joins
+between each pair of classes in your UnitJoin tree. However, repeated units
+in the results will reference the same object; in the example above, each
+"pub" unit will be the same object, since we limited that expression to
+a single Publisher. So we might retrieve multiple (pub, book) pairs,
+but the first unit in each pair will be the same unit instance.</p>
+
+<p>The relationships (joins) between each class are specified by
+<a href='modeling.html#associations'>Unit Associations</a>.</p>
+
+<h5>xrecall()</h5>
+<p>Just like recall, but returns an iterator instead of a list. Use xrecall
+to load Units in a more lazy fashion.</p>
+
+<h5>unit()</h5>
+<p>The <tt>recall</tt> method can be verbose. When you want a one-liner
+and only expect a single Unit, use the
+<tt class='def'>unit(cls, **kw)</tt> method
+of Sandboxes. Again, you pass the class of Units you wish to retrieve
+as the first argument. Then, supply keyword arguments of the form
+"property_name=value". The method will form an equivalent Expression
+for you from the keyword args. For example:
+<pre>>>> book = box.unit(Book, ID=1)
+>>> if book:
+...     print book.Title
+u'Ladies in Hades'</pre>
+If no Unit can be found that matches the criteria, None is returned.
+If multiple Units match the criteria, only the first one is returned
+(although the rest may be loaded into memory).</p>
+
+<p>The <tt>unit</tt> method is heavily optimized (in both the sandbox and
+all stores) for retrieving a single Unit by its identifiers. When using
+key-value stores like <a href='http://www.danga.com/memcached/'>memcached</a>
+in your storage manager network, calling <tt>unit</tt> may be much faster
+than <tt>recall</tt>, even for multiple units.</p>
+
+<h5>"Magic recaller" methods</h5>
+<p>For each class you have registered with your store, the Sandbox will
+have a "magic recaller" method of the same name, to make single-unit
+lookups easier. Instead of the above example for <tt>box.unit()</tt>,
+we might just as well have written:
+<pre>>>> book = box.Book(1)</pre>
+Note that for the magic methods, unlike for the <tt>unit</tt> method,
+you may pass identifiers as positional arguments. If the class has
+multiple identifiers, you should probably stick to keyword arguments;
+otherwise, you must remember the order of the class' identifiers tuple.
+</p>
+
+<h4>Forgetting and Repressing</h4>
+<p>To <i>forget</i> a Unit is to destroy it forever. You have two options
+for forgetting Units: you can call <tt>sandbox.forget(unit)</tt> or
+the simpler version, <tt class='def'>unit.forget()</tt>. Either of these will clear
+the Unit from the Sandbox' cache, and the Sandbox will tell the appropriate
+Storage Manager to destroy the stored Unit data. If a Unit has not yet
+been memorized, you do not need to forget it.</p>
+
+<p>In some circumstances, you may wish to only clear the Unit from the
+Sandbox without destroying it. You can do this by calling either
+<tt>sandbox.repress(unit)</tt> or the simpler version,
+<tt class='def'>unit.repress()</tt>.</p>
+
+<p>You may define special methods on your Units to provide end-of-life
+behaviors. If a Unit possesses an <tt>on_forget</tt> method, it will
+be called after the Unit has been destroyed. If a Unit possesses an
+<tt>on_repress</tt> method, it will be called <i>before</i> the Unit
+has been repressed. I'm sure there was a good reason for this
+disparity, but I've forgotten (or perhaps repressed) it.</p>
+
+<p>Be aware that many of the things you put in an <tt>on_repress</tt>
+handler might also need to go into <tt>on_forget</tt>. The one doesn't
+call the other automatically, because sometimes you <i>don't</i> want
+the same behavior.</p>
+
+
+<h4>Flushing Sandboxes</h4>
+<p>When the client connection has closed, you should <i>flush</i> the
+Sandbox caches. In general, a single call to
+<tt class='def'>sandbox.flush_all()</tt>
+will do the trick. Notice that <tt>flush_all()</tt> calls any
+<tt>on_repress()</tt> handler for each Unit in the Sandbox.</p>
+
+<p><b>Warning:</b> You should <b>NOT</b> call <tt>flush_all()</tt>
+indiscriminately. You will rapidly get into concurrency trouble. You
+can stay out of trouble following an easy rule: call <tt>flush_all</tt>
+only at the end of your client's connection.</p>
+
+<p>If you want the "hard" rule, here it is. If you flush any Unit class,
+then any instances of that class hanging around need to be re-recalled. If
+you don't re-recall them, then any changes you make to the old instance
+won't be saved on the next flush, since flushing only iterates through
+units in the sandbox. For example, if you do this:</p>
+
+<pre>box = store.new_sandbox()
+thing = box.unit(Thing)
+box.flush_all()
+thing.Size += 12
+box.flush_all()
+</pre>
+
+<p>...then the change you make to "Size" won't be persisted, since the
+Thing object is no longer in the sandbox--it's been flushed out. You have
+to recall it somehow to get it stuck in the sandbox again. You could go
+through all kinds of gyrations to save the old units directly to storage,
+but don't bother. Just get new references to them and save yourself a lot
+of headache.</p>
+
+<h4>Views</h4>
+<p>Sandboxes provide a
+<tt class='def'>view(query, distinct=False)</tt> function.
+This works like <tt>recall</tt>, but returns values, rather than Units.
+The 'query' argument should be an instance of <tt>dejavu.Query</tt>,
+or more commonly, a 3-tuple of (cls, attrs, expr).
+Put simply, it yields all values
+for the given attribute(s) of the Unit class provided; each unit will
+yield a tuple of its values in the same order as the <tt>attrs</tt>
+sequence you provide. Providing an expr argument (a lambda, an
+<tt>Expression</tt> object, or a dict, see below), will filter the
+set of Units before obtaining the value tuples.</p>
+
+<pre>>>> v = sandbox.view((zoo.Animal, ['Name', 'Lifespan']))
+>>> [row for row in v]    # or list(v), or iterate over v...
+[('Leopard', 73.5),
+ ('Slug', .75),
+ ('Tiger', None),
+ ('Lion', None),
+ ('Bear', None),
+ ('Ostrich', 103.2),
+ ('Centipede', None),
+ ('Emperor Penguin', None),
+ ('Adelie Penguin', None),
+ ('Millipede', None)
+ ]
+</pre>
+
+<p>In this example (pulled from the "zoo" test suite), we grab the name
+and Lifespan for each Animal. The <tt>attrs</tt> argument must always
+be an iterable.</p>
+
+<p>If the 'distinct' argument is True, <tt>view</tt> returns distinct
+tuples rather than all tuples.</p>
+
+<p>The <tt>view</tt> function can also be used as a <tt>count</tt>
+function by passing <tt>attrs = cls.identifiers</tt> and setting
+'distinct' to True.
+Sandboxes provide a <tt class='def'>count(cls, expr=None)</tt>
+method which does just this.</p>
+
+<p>There are two additional sandbox methods for aggregates: range and sum.
+The <tt class='def'>range(cls, attr, expr=None)</tt> method takes a single
+attribute and returns the closed interval [min(attr), ..., max(attr)]. The
+<tt class='def'>sum(cls, attr, expr=None)</tt> method also takes a single
+attribute and returns the sum of all non-None values for the given
+cls.attr.</p>
+
+<h5>xview()</h5>
+<p>Just like view, but returns an iterator instead of a list. Use xview
+to load Unit values in a more lazy fashion.</p>
+
+
+
+<h4>Transactions</h4>
+<p>Dejavu supports distributed transactions at all levels (however, it
+does not yet use distributed two-phase commit! That's planned for later).
+Most often, your code will call transaction methods on the current 
+sandbox object.
+When you call sandbox.<tt class='def'>start(isolation=None)</tt>,
+you are telling Dejavu to begin a transaction on all known stores.
+Note that this will start a transaction on all stores regardless of
+which classes are registered for each store; Dejavu has no way of
+knowing beforehand which classes or stores your next statements
+will affect.</p>
+
+<p>The <tt>isolation</tt> argument to the <tt>start</tt> method is very
+important. It determines the "isolation level" of the transaction;
+that is, the degree to which the current transaction can see changes made
+to a concurrent transaction. The ANSI/ISO SQL92 standard defines four
+isolation levels, based on three phenomena:</p>
+
+<table style='border: none;'>
+<tr>
+    <th rowspan='2' colspan='2' style='border: none;'>&nbsp;</th>
+    <th colspan='4'>Level</th>
+</tr>
+<tr>
+    <th>Read Uncommitted</th>
+    <th>Read Committed</th>
+    <th>Repeatable Read</th>
+    <th>Serializable</th>
+</tr>
+<tr>
+    <th rowspan='3'>P<br />h<br />e<br />n<br />o<br />m<br />e<br />n<br />a</th>
+    <th>Dirty Read</th>
+    <td>Possible</td>
+    <td>Not possible</td>
+    <td>Not possible</td>
+    <td>Not possible</td>
+</tr>
+<tr>
+    <th>Fuzzy Read</th>
+    <td>Possible</td>
+    <td>Possible</td>
+    <td>Not possible</td>
+    <td>Not possible</td>
+</tr>
+<tr>
+    <th>Phantom</th>
+    <td>Possible</td>
+    <td>Possible</td>
+    <td>Possible</td>
+    <td>Not possible</td>
+</tr>
+</table>
+
+<p>A "dirty read" occurs when TX 1 writes a value and TX 2 is able to read
+the change before TX 1 commits.</p>
+
+<p>A "fuzzy read" (or "nonrepeatable read" occurs when TX 1 reads a value,
+TX 2 changes that value and commits, and TX 1 obtains the new value when
+it re-reads.</p>
+
+<p>A "phantom" occurs when TX 1 reads a set, TX 2 adds to the set,
+and TX 1 obtains the new rows when it re-reads.</p>
+
+<p>Dejavu supports a variety of stores, and not every store supports every
+isolation level. See the <a href='storage.html#comparison'>comparison chart</a>
+for details. Some stores, like shelve and RAM, don't support transactions
+at all. In addition, different stores "prevent" the above phenomena in 
+different ways. In some cases, the phenomena is simply not allowed to exist.
+In other cases, the phenomena raises an error immediately. In still other
+cases, the phenomena is prevented by waiting (up to a timeout) until one
+of the offending transactions completes.</p>
+
+<p>Once you have finished executing statements, you should call
+<tt>flush_all</tt>, which will call <tt class='def'>commit()</tt>
+for you. Alternately, you may call <tt class='def'>rollback()</tt>
+if you need to ignore your changes.</p>
+
+<p>If you're using a store that supports implicit transactions (also
+sometimes called "autocommit"), you can skip calling <tt>start</tt>
+by setting the Database attribute <tt class='def'>connections.implicit_trans</tt>
+to True (it's False by default). This can be done in code or config.
+See the <a href='storage.html#comparison'>comparison chart</a> for
+details.</p>
+
+
+<h3><a name='Querying'>Querying</a></h3>
+<p>When you retrieve Units, you often don't want to load the entire set for
+a given class. In Dejavu, you filter the set according to the UnitProperty
+attributes for each object. Naturally, there must be a way to express
+the filter you intend. Dejavu actually provides three ways, all in the
+<tt>dejavu.logic</tt> module: <tt>Expression</tt>,
+<tt>filter</tt>, and <tt>comparison</tt>.</p>
+
+<h4>The <tt>Expression</tt> class</h4>
+<p>Regardless of which technique you use to express your filter, you're
+going to end up with a <tt>logic.Expression</tt> object. You can build
+an Expression directly, passing a single lambda as an argument:
+<pre>>>> from dejavu import logic
+>>> import datetime
+>>> f = lambda x: x.Date >= datetime.date(2004, 3, 1)
+>>> e = logic.Expression(f)
+>>> e
+logic.Expression(lambda x: x.Date >= datetime.date(2004, 3, 1))</pre>
+Neat, eh? I worked hard on that __repr__. ;)</p>
+
+<p>It may be obvious, but we'll be explicit, here. The lambda which you pass
+into an Expression must possess a positional argument, which will
+always be bound to a Unit instance. In the example above, it's named 'x',
+but you can use any name you like. Using lambdas as a base means that we
+can simply call <tt>e(unit)</tt>, and receive a boolean
+value indicating whether our Unit "passes the test". Attribute lookups on
+our 'x' object will apply to Unit Properties for that Unit object.
+That is, <tt>x.Date</tt> becomes <tt>unit.Date</tt>.</p>
+
+<p>You can also do fancier things with Expressions (although the vast
+majority of the time, you won't need to in order to use Dejavu):</p>
+<pre>>>> logic.Expression(lambda x, y, z: "Dave" in x.Name and y.Age > 65)
+logic.Expression(lambda x, y, z: ('Dave' in x.Name) and (y.Age > 65))
+>>> logic.Expression(lambda *units, **kw: units and
+...                  (units[0].Width > units[0].Height or
+...                   units[0].Color in kw['Colors']))
+logic.Expression(lambda *units, **kw: (units) and
+                 ((units[0].Width > units[0].Height) or
+                  (units[0].Color in kw['Colors'])))
+>>> 
+</pre>
+
+<h4>Early binding</h4>
+<p>What is not obvious from the above code snippet is perhaps the <b>most
+important aspect</b> of Expressions: any globals or cell references (from 
+closures) in the supplied lambda get <b>bound early</b>. Compare the
+following disassemblies:
+<pre>>>> import dis
+>>> dis.dis(f)
+  1           0 LOAD_FAST                0 (x)
+              3 LOAD_ATTR                1 (Date)
+              6 LOAD_GLOBAL              2 (datetime)
+              9 LOAD_ATTR                3 (date)
+             12 LOAD_CONST               1 (2004)
+             15 LOAD_CONST               2 (3)
+             18 LOAD_CONST               3 (1)
+             21 CALL_FUNCTION            3
+             24 COMPARE_OP               5 (>=)
+             27 RETURN_VALUE        
+>>> dis.dis(e.func)
+  1           0 LOAD_FAST                0 (x)
+              3 LOAD_ATTR                1 (Date)
+              6 LOAD_CONST               6 (datetime.date(2004, 3, 1))
+              9 COMPARE_OP               5 (>=)
+             12 RETURN_VALUE        
+</pre>
+As you can see, the function itself references the global 'datetime' module.
+Once we wrap it in the Expression, however, it becomes a constant! Thanks to
+Raymond Hettinger for inspiring this solution <a href='#hettinger'>[1]</a>.
+Early binding, however, implies two consequences:</p>
+
+<p>First, any globals or cell references must be present in the lambda's
+scope when it is passed into Expression(). This is the norm and shouldn't
+require too much thought from you when you write Expressions. In the
+example above, we simply imported <tt>datetime</tt> as you would expect.</p>
+
+<p>Second, any globals or cell references must <b>also</b> be present in
+the <tt>logic</tt> module when the Expression is unpickled.
+Pickling occurs when Expressions are sent over sockets, and also if
+Expressions are themselves persisted to storage (for example, see
+<u>Unit Engines</u>, below). This means your application must register
+such global references in <tt>logic.builtins</tt> (a dict). Note that
+the <tt>logic</tt> module already tries to import <tt>datetime</tt>,
+<tt>fixedpoint</tt> and <tt>decimal</tt>.</p>
+
+<h4>External functions within Expressions</h4>
+<p>Dejavu provides additional functions which can be used in Expressions.
+For example, you can construct an Expression like:
+<pre>logic.Expression(lambda x: x.Size < 3 and x.Date > today())</pre>
+In this example, the <tt>today()</tt> function breaks convention and is
+actually <b>bound late</b>. That is, if you construct this Expression now
+and use it six months later, the value of <tt>today()</tt> will change.
+Storage Managers "know about" these dejavu functions, and can use them
+to build more appropriate queries. Here are the functions supplied by
+Dejavu:</p>
+
+<table>
+<tr><th>Function</th><th>Late bound?</th><th>Description</th></tr>
+<tr>
+    <td><tt>icontains(a, b)</tt></td>
+    <td></td>
+    <td>Case-insensitive test b in a. Note the operand order.</td>
+</tr>
+<tr>
+    <td><tt>icontainedby(a, b)</tt></td>
+    <td></td>
+    <td>Case-insensitive test a in b. Note the operand order.</td>
+</tr>
+<tr>
+    <td><tt>istartswith(a, b)</tt></td>
+    <td></td>
+    <td>True if a starts with b (case-insensitive), False otherwise.</td>
+</tr>
+<tr>
+    <td><tt>iendswith(a, b)</tt></td>
+    <td></td>
+    <td>True if a ends with b (case-insensitive), False otherwise.</td>
+</tr>
+<tr>
+    <td><tt>ieq(a, b)</tt></td>
+    <td></td>
+    <td>True if a == b (case-insensitive), False otherwise.</td>
+</tr>
+<tr>
+    <td><tt>year(value)</tt></td>
+    <td></td>
+    <td>The year attribute of a date. If value is None, return None.</td>
+</tr>
+<tr>
+    <td><tt>month(value)</tt></td>
+    <td></td>
+    <td>The month attribute of a date. If value is None, return None.</td>
+</tr>
+<tr>
+    <td><tt>day(value)</tt></td>
+    <td></td>
+    <td>The day attribute of a date. If value is None, return None.</td>
+</tr>
+<tr>
+    <td><tt>now()</tt></td>
+    <td>Y</td>
+    <td>datetime.datetime.now()</td>
+</tr>
+<tr>
+    <td><tt>utcnow()</tt></td>
+    <td>Y</td>
+    <td>datetime.datetime.utcnow()</td>
+</tr>
+<tr>
+    <td><tt>today()</tt></td>
+    <td>Y</td>
+    <td>datetime.date.today()</td>
+</tr>
+<tr>
+    <td><tt>iscurrentweek(value)</tt></td>
+    <td>Y</td>
+    <td>If value is in the current week, return True, else False.</td>
+</tr>
+</table>
+
+<p>It is possible for you, the application developer, to define your
+own external functions by injecting them into the globals of the
+<tt>logic</tt> module. For example, <tt>logic.odd = lambda unit:
+(unit.num % 2) == 1</tt>. However, because the builtin Storage Managers
+are unaware of your new functions, they will not be able to optimize
+their use; instead, they will simply retrieve a larger set of objects
+from storage, evaluate each one against the function you provide,
+and return those Units which match your function. This isn't necessarily
+a bad thing; it provides the same functionality as if you wrote the test
+inline within your own code. By making that test a logic function, you also
+allow it to be stored in Engine <i>rules</i> (see <u>Unit Engines</u>,
+below). You may, of course, create your own Storage Manager which
+understands your external function (and can translate its logic into,
+say, SQL), and thereby achieve end-to-end functionality.</p>
+
+<a name='filter'><h4>Using <tt>filter</tt> to form Expressions</h4></a>
+<p>The <tt>logic</tt> module also provides convenient methods to
+create common types of Expression objects via the <tt>filter</tt> and
+<tt>comparison</tt> factory functions.</p>
+
+<p>The <tt class='def'>filter(**kwargs)</tt> function produces an Expression by taking
+the keyword arguments you supply, and rewriting them in lambda form. The 
+only operator allowed is therefore the equals '==' operator. For example:
+<pre>>>> logic.filter(Type='Cat', Mutation='Atomic')
+logic.Expression(lambda x: (x.Type == 'Cat') and (x.Mutation == 'Atomic'))</pre>
+</p>
+
+<h4>Using <tt>comparison</tt> to form Expressions</h4>
+<p>The <tt class='def'>comparison(attr, cmp_op, criteria)</tt> function allows you to
+form Expressions with dynamic operators. This can come in handy when you
+are constructing Expressions on the fly from user input. For example, a
+search page might prompt users for an attribute name, an operator, and an
+operand (the criteria).</p>
+
+<p>Borrowing from <tt>opcode.cmp_op</tt>, the allowed values for our cmp_op
+argument are as follows:</p>
+<table>
+<tr><th>Numeric Value (cmp_op)</th><th>Operator</th></tr>
+<tr><td>0</td><td>&lt;</td></tr>
+<tr><td>1</td><td>&lt;=</td></tr>
+<tr><td>2</td><td>==</td></tr>
+<tr><td>3</td><td>!=</td></tr>
+<tr><td>4</td><td>&gt;</td></tr>
+<tr><td>5</td><td>&gt;=</td></tr>
+<tr><td>6</td><td>in</td></tr>
+<tr><td>7</td><td>not in</td></tr>
+<tr><th colspan='2'>Most SM's only support the following with <tt>None</tt>:</th></tr>
+<tr><td>8</td><td>is</td></tr>
+<tr><td>9</td><td>is not</td></tr>
+</table>
+
+<p>Here's an example of using <tt>comparison</tt>:
+<pre>>>> logic.comparison('Name', 3, 'Mr. Kamikaze')
+logic.Expression(lambda x: x.Name != 'Mr. Kamikaze')</pre>
+Although the comparison function only allows a single comparison at a time,
+the resulting Expressions can be combined with the <tt>&</tt> and <tt>|</tt>
+operators (see next) to produce more complex Expressions.</p>
+
+<h4>Combining Expressions</h4>
+<p>Expressions are combinable; by using the <tt>&</tt> operator, the two
+expressions are combined with an adjoining logical "and". For example:
+<pre>>>> a = logic.Expression(lambda x: x.Size > 3)
+>>> b = logic.Expression(lambda x: x.Size <= 15)
+>>> c = a & b
+>>> c
+logic.Expression(lambda x: (x.Size > 3) and (x.Size <= 15))</pre>
+The <tt>+</tt> operator works just like the <tt>&</tt> operator. The
+<tt>|</tt> operator combines the two Expressions with a logical 'or'.</p>
+
+<p>When you combine two Expressions with dissimilar argument lists,
+what happens? The Expression class doesn't really care what the argument 
+names are, just their order, so the names might not come out as you might
+expect; however, the logic is preserved:</p>
+
+<pre>>>> f = logic.filter(Name='Bruce')
+>>> f
+logic.Expression(lambda x: x.Name == 'Bruce')
+>>> g = logic.Expression(lambda a, b, **kw: a.Name + b.Surname == kw['Full Name'])
+>>> 
+>>> f + g
+logic.Expression(lambda x, b, **kw: (x.Name == 'Bruce')
+                 and (x.Name + b.Surname == kw['Full Name']))
+>>> g + f
+logic.Expression(lambda a, b, **kw: (a.Name + b.Surname == kw['Full Name'])
+                 and (a.Name == 'Bruce'))
+</pre>
+
+<h4><a name='kwtypes'>Specifying types for Expression kwargs</a></h4>
+<p>Up to now, we've constructed Expression objects with a single argument,
+the function which we're going to wrap. But Expression objects may take
+a second argument, called "kwtypes". This argument must be a dictionary of
+{keyword: type} pairs. Dejavu doesn't do anything internally with this
+information; it's simply a standard place to keep it for use by your own
+applications. However, the kwtypes attribute will be persisted when
+pickling and unpickling Expression objects, a very common operation.</p>
+
+<h4>Exporting the <tt>logic</tt> module</h4>
+<p>The <tt>logic</tt> module (and <tt>codewalk</tt>, on which it is built)
+isn't limited to Dejavu. Feel free to use it in some other framework or
+script! The only change you may have to make (if you relocate the module
+outside of the <tt>dejavu</tt> package) would be to the single line:
+<tt>from dejavu import codewalk</tt>, to point to the new location.</p>
+
+<p>In particular, <tt>logic.Expression</tt> objects can operate on <i>any</i>
+Python objects, not just dejavu <tt>Unit</tt> instances. If you wish to
+provide additional logic functions (as dejavu does), simply add them
+to <tt>logic.builtins</tt>.</p>
+
+<p>You may also find the underlying <tt>codewalk</tt> module useful for
+other purposes on its own. The <tt>Visitor</tt> base class can be very
+convenient for building bytecode hacks.</p>
+
+<p>To make a long story short, Dejavu depends on <tt>logic</tt> throughout,
+but the reverse is not true.</p>
+
+
+<h3><a name='Engines'>Unit Engines</a></h3>
+<p>Once you've created and associated your Unit classes, you can begin to
+write "business logic" code (mostly inside those classes, we hope), and
+"presentation logic" code (mostly outside those classes). In most cases,
+you will construct Expressions within your own code manually to retrieve
+Units. Sometimes, however, you need to persist query parameters from your
+users; in other cases, you might store a list of Units which match a query
+(regardless of who formed the necessary Expression). Finally, you might
+wish to manipulate lists of Units as sets: differences, intersections,
+and unions. The <tt>engines</tt> module addresses all of these needs.</p>
+
+<h4>Collections: Lists of Units</h4>
+<p>The <tt>UnitCollection</tt> class provides a means of storing a list of
+Units, or rather, a list of Unit identifier values. You use its <tt>Type</tt>
+property to indicate the class of the indexed Units. That value should be
+the <b>name</b> of the Unit Class, <b>not</b> the class object itself
+(this is different than most other calls in Dejavu). If you need to
+retrieve the actual Unit class, call <tt>UnitCollection().unit_class()</tt>.</p>
+
+<p><tt>UnitCollection</tt> itself subclasses <tt>dejavu.Unit</tt>; you can
+therefore persist Unit Collections via Dejavu Storage Managers (most SM's,
+anyway; it's recommended that SM's handle Unit Collections, but not
+required. Check your SM to see if it does).</p>
+
+<p>Each Collection has a thread lock (an RLock, actually) which you should
+<tt class='def'>acquire()</tt> before you add an ID to the set,
+and <tt class='def'>release()</tt> afterward. If you use the
+<tt class='def'>add(ID)</tt> method, this locking is done
+for you.</p>
+
+<p>When you need to retrieve the actual Units which are indexed by the
+Collection, call the <tt class='def'>units(quota=None)</tt> method, which
+will look up the Units and return them in a list. Since the Collection only
+stores identifier values, it is possible that one of the indexed Units may have
+been destroyed since the list was built. The <tt>units</tt> method simply
+passes over these "phantom" Units. You can inspect the full list of IDs
+in the Collection (whether they reference existing Units or not) with
+the <tt class='def'>ids()</tt> method.</p>
+
+<p>Collections also provide a convenience function for grouping Units
+by attribute: <tt class='def'>xdict(attr)</tt>. This function will look up
+each Unit
+in the Collection, inspect the attribute that you specify, and return
+a dictionary of the form <tt>{attr_val1: [Unit, Unit, ...]}</tt>.
+Each distinct attribute value will have its own key, with a list of
+matching Units as the value.</p>
+
+<h4>Engines</h4>
+<p>You can form Collections by hand, but a more powerful technique is
+the <tt>UnitEngine</tt>, a factory for Collections. Engines are very
+simple: they possess a set of <i>rules</i> which are executed when
+you want to take a <i>snapshot</i> of Units. The snapshot which is
+produced is a <tt>UnitCollection</tt> object. Whenever you call
+<tt class='def'>take_snapshot()</tt>, the Engine will maintain an association
+to the resulting Collection. You can access past snapshots with the
+<tt class='def'>snapshots()</tt> method.</p>
+
+<p>Engines are themselves Units, and can be persisted via Storage Managers.
+The only properties they possess are: an <tt class='def'>ID</tt>,
+a <tt class='def'>Name</tt>, an <tt class='def'>Owner</tt>,
+a <tt class='def'>FinalClassName</tt>, and <tt class='def'>Created</tt>,
+the creation date of the Engine.</p>
+
+<p>The <tt>Owner</tt> property should either be a user name, or one of the
+reserved names: "Public" and "System". By default, the
+<tt class='def'>permit()</tt>
+method allows a user read-access to the Engine if they are the Owner, or
+the Owner is "Public" or "System". Write-access is permitted if the user
+is the Owner, or the Owner is "Public". Feel free to override
+<tt>permit()</tt> in a subclass to provide different behaviors.</p>
+
+<p>The <tt>FinalClassName</tt> is set for you as you add Rules to the
+Engine. You can use the value of this property, for example, to tell
+your users, "Engine #23569 is an 'Armadillo' engine," when it produces
+Collections of <tt>Armadillo</tt> Units. The only time you might want to
+set this value manually is when you first create the Engine, before you
+have added any Rules.</p>
+
+<h4><a name='unitenginerules'>Rules</a></h4>
+<p>Just like Collections and Engines, <tt>UnitEngineRule</tt> is <i>also</i>
+a subclass of <tt>Unit</tt>, and can be persisted via Storage Managers. All
+three work together to provide a complete, dynamic, application-level query
+generator.</p>
+
+<p>Okay, so what are Rules? You might say they're a "little language",
+with the following primitives, or "operations":</p>
+<table>
+<tr><th>Operation</th><th>Operand(s)</th><th>Description</th></tr>
+<tr><th colspan='3'>Operations on a single set</th></tr>
+<tr>
+    <td>CREATE</td>
+    <td>The classname of the new Type</td>
+    <td>Creates a new Set of the specified Type. All Units of that Type
+        are included in the new Set.</td>
+</tr>
+<tr>
+    <td>FILTER</td>
+    <td>A <tt>logic.Expression</tt></td>
+    <td>Removes Units from the current Set which do not match the
+        Expression.</td>
+</tr>
+<tr>
+    <td>FUNCTION</td>
+    <td>The name of a function in the <tt>store.engine_functions</tt>
+        dict</td>
+    <td>Calls the function, passing the current Set. The function
+        should modify the Set.</td>
+</tr>
+<tr>
+    <td>TRANSFORM</td>
+    <td>The classname of the new Type</td>
+    <td>Transform the current Set into a Set of associated Units
+        (of another Type). The association must be present in the
+        <tt>store.associations</tt> graph.</td>
+</tr>
+<tr>
+    <td>RETURN</td>
+    <td></td>
+    <td>Optional. If omitted, the last Set handled is returned as the
+        snapshot. If supplied, the ID of the Set to return.</td>
+</tr>
+<tr><th colspan='3'>Operations on two sets</th></tr>
+<tr>
+    <td>COPY</td>
+    <td>The Set ID of the new Set</td>
+    <td>Copies the current Set to a new Set. The current Set is unchanged.</td>
+</tr>
+<tr>
+    <td>DIFFERENCE</td>
+    <td>The ID of the Set to mix in</td>
+    <td>Removes IDs from the current Set which exist in the second Set.</td>
+</tr>
+<tr>
+    <td>INTERSECTION</td>
+    <td>The ID of the Set to mix in</td>
+    <td>Removes IDs from the current Set which <i>do not</i> exist in the
+        second Set.</td>
+</tr>
+<tr>
+    <td>UNION</td>
+    <td>The ID of the Set to mix in</td>
+    <td>Adds any IDs to the current Set which exist in the second Set.</td>
+</tr>
+</table>
+
+<p>Each Rule has an <tt>Operation</tt> property (a string, one of the above),
+a <tt>SetID</tt>, and an <tt>Operand</tt>. Here's an example ruleset:</p>
+<table>
+<tr><th>Sequence</th><th>Operation</th><th>SetID</th><th>Operand</th></tr>
+<tr><td>1</td><td>CREATE</td><td>1</td><td>"Invoice"</td></tr>
+<tr><td>2</td><td>FILTER</td><td>1</td>
+    <td><tt>lambda x: x.Date > dejavu.today()</tt></td></tr>
+<tr><td>3</td><td>CREATE</td><td>2</td><td>"Inventory"</td></tr>
+<tr><td>4</td><td>FILTER</td><td>2</td>
+    <td><tt>logic.Expression(lambda z: z.ID < 10)</tt></td></tr>
+<tr><td>5</td><td>TRANSFORM</td><td>2</td><td>"Invoice"</td></tr>
+<tr><td>6</td><td>DIFFERENCE</td><td>1</td><td>2</td></tr>
+<tr><td>7</td><td>RETURN</td><td>1</td><td></td></tr>
+</table>
+
+<p>As you can see, every Rule operates on a <i>Set</i> of Units. The first
+rule is always to CREATE a set, declaring it to contain a certain Type
+of Units. In most cases, you will then FILTER that set. If you simply
+created a set and then returned it, it would contain all Units of the
+declared Type. When you filter a set, however, you remove Units from
+the whole which do not match the filter's Expression.</p>
+
+<p>In the example above, we CREATE a second Set so that we can eventually
+obtain the DIFFERENCE between Set 1 and Set 2. The second Set contains
+Units of a different Type than the first. Once we filter Set 2, we then
+TRANSFORM it; for each Inventory Unit, we look up associated Invoice
+Units. Then, we find the difference between the two Invoice sets and
+RETURN it.</p>
+
+<p>Rules are executed in order according to their <tt>Sequence</tt>
+attribute (lowest first). When you use the <tt>Engine.add_rule</tt> method,
+the next <tt>Sequence</tt> value is retrieved for you. Notice that each
+Rule belongs to one and only one Engine; they are not shared between
+Engines. Each Rule has its own <tt>EngineID</tt> attribute.</p>
+
+<h4>Engine Functions</h4>
+<p>The FUNCTION rule deserves special mention. The Operand of a FUNCTION
+rule is a string, a key in the <tt>store.engine_functions</tt> dictionary.
+When the rule is executed, that key is used to look up the function, which
+is then called, passing <tt>(sandbox, set)</tt>. The function should
+mutate the set directly. Use FUNCTION rules to mutate sets in ways which
+are more complex than those provided by FILTER and TRANSFORM. For example,
+you might provide a function which removes all but the first Unit in the
+Set (according to some ordering algorithm).</p>
+
+
+<h3>Analysis Tools</h3>
+<p>Dejavu includes various tools to help you manipulate groups of Units.</p>
+
+<h4>Sorting Units</h4>
+<p>When you recall Units, you receive a list. If you didn't ask the
+<tt>recall</tt> method to order the results, you must sort your list
+in your Python code. Dejavu provides a <tt class='def'>sort(attrs)</tt>
+function to assist you in sorting Units. It returns a function, which you
+can then use in Python's sort function (which operates in place).
+Continuing our example:
+<pre>people.sort(dejavu.sort(['Size DESC', 'Name']))</pre>
+The most important issue (and the reason we don't just use 2.4's attrgetter),
+is that any Unit property must allow values of None, which tends to raise
+errors when compared to values of other types. The function which
+<tt>sort</tt> creates for you treats None as "less than" any other value.</p>
+
+<h4>Cross-tabulation</h4>
+<p>Cross-tabs (also called <i>aggregate tables</i> or <i>pivot tables</i>)
+display aggregate information about objects by category. For example,
+rather than show a list of Safari records, one row per trip, you might
+wish to show a table where each row represents a Destination, and each
+column shows the count of Safaris to that Destination for each distinct
+Year. In this example, we say that the Safaris are "grouped by" their
+Destination values, and that we "pivot" on the Year values.</p>
+
+<p>Dejavu helps you form such a table via the <tt>CrossTab</tt> class.
+You need to specify the group(s) you wish to use, and the pivot attribute.
+Finally, you must specify the aggregate function. Here's a code example:
+<pre>
+>>> data = ["a", "b", "cc", "bddd", "a4", "b6"]
+>>> group = lambda x: x.isalpha()
+>>> pivot = lambda x: x[0]
+>>> ctab = analysis.CrossTab(data, [group], pivot, dejavu.COUNT)
+>>> data, columns = ctab.results()
+>>> data
+{(True,): {"a": 1, "b": 2, "c": 1},
+ (False,): {"a": 1, "b": 1}}
+>>> columns
+["a", "b", "c"]</pre>
+You may notice that we're not using Units in our example; the
+<tt>CrossTab</tt> class is designed to work with any objects. Here's one
+way to lay out that data:</p>
+<table>
+<tr><th>Is Alpha</th><th>a</th><th>b</th><th>c</th></tr>
+<tr><td>Y</td><td>1</td><td>2</td><td>1</td></tr>
+<tr><td>N</td><td>1</td><td>1</td><td>0</td></tr>
+</table>
+
+<p>The <tt>results</tt> method returns two values. First, the table
+itself in the form of a dictionary; each key is a tuple of group values,
+and the corresponding value is a sub-dictionary. Each sub-dict has keys
+which are the pivot attribute, and values which equal the aggregates.
+I know, that was confusing; look at the example. The second value to
+be returned is a list of the pivot column values; you'll notice they're
+sorted.</p>
+
+<p>The groups and pivot arguments may be either strings or functions.
+If strings, they must be the names of attributes of the source objects.
+The final aggfunc argument defaults to COUNT, but may also be SUM.
+More aggfuncs may arrive in the future.</p>
+
+<hr />
+
+<p><a name='hettinger'>[1]</a> Python Cookbook,
+<a href='http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/277940'>Binding
+Constants at compile time</a><br />
+</p>
+
+</body>
+</html>

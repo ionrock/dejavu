@@ -1,0 +1,760 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Modeling your Application</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+</head>
+
+<body>
+
+<h2>Application Designers: Using Dejavu to Construct a Domain Model</h2>
+
+<a name='units'><h3>Units</h3></a>
+<p>When constructing a Domain Model for your application, you will want
+to distinguish between objects that will be persisted and objects that
+will not. By registering a subclass of <tt>dejavu.Unit</tt>, you allow
+instances of that subclass to be persisted.</p>
+
+<p>Before you can register your Unit class, you must create it:
+<pre>import dejavu
+class Printer(dejavu.Unit): pass</pre>
+This is all you need for a fully-functioning Unit class. There are
+no methods or attributes that you are required to override; simply
+subclass from <tt>Unit</tt>. However, this is a fairly uninteresting
+class. It automatically has an ID property, but doesn't provide any
+functionality other than what <tt>Unit</tt> already provides. The first
+thing we will probably want to add to our new class is persistent data.</p>
+
+<h4>UnitProperty</h4>
+<p>Once you have defined a persistent class (by subclassing <tt>Unit</tt>),
+you need to make another decision. Rather than persist the entire object
+<tt>__dict__</tt>, you specify a subset of persistent attributes by using
+<tt>UnitProperty</tt>, a data descriptor. If you've used Python's builtin
+property() construct, you've used descriptors before.</p>
+
+<p>We might enhance our Printer example thusly:
+<pre>from dejavu import Unit, UnitProperty
+class Printer(Unit):
+    Manufacturer = UnitProperty(unicode)
+    ColorCopies = UnitProperty(bool)
+    PPM = UnitProperty(float)</pre>
+This adds three persistent attributes to our <tt>Printer</tt> objects,
+each with a different datatype. In addition, every subclass of <tt>Unit</tt>
+inherits an 'ID' property, an int.</p>
+
+<p>When you get and set <tt>UnitProperty</tt> attributes, they behave just
+like any other attributes:
+<pre>>>> p = Printer()
+>>> p.PPM = 25
+>>> p.PPM
+25.0</pre>
+However, you will notice right away that the int value we provided has been
+coerced to a float behind the scenes. This is because we specified the PPM
+attribute as a 'float' type when we created it. The value of a Unit
+Property is restricted to the type which you specify. The only other valid
+value for a Unit Property is None; any Property may be None at any time,
+and in fact, all Properties are None until you assign values to them:
+<pre>>>> p.ColorCopies is None
+True</pre></p>
+
+<a name='unitproperty_types'><h5>UnitProperty types</h5></a>
+<p>Dejavu is extensible, and in official specification/API terms, any Python
+type is allowed as a <tt>UnitProperty.type</tt>. The standard distribution
+tends to provide full support for:
+
+<ul>
+    <li><tt>bool</tt></li>
+    <li><tt>int</tt></li>
+    <li><tt>long</tt></li>
+    <li><tt>float</tt></li>
+    <li><tt>decimal.Decimal</tt></li>
+    <li><tt>fixedpoint.FixedPoint</tt></li>
+    <li><tt>str</tt></li>
+    <li><tt>unicode</tt></li>
+    <li><tt>datetime.date</tt></li>
+    <li><tt>datetime.time</tt></li>
+    <li><tt>datetime.datetime</tt></li>
+    <li><tt>datetime.timedelta</tt></li>
+    <li><tt>tuple</tt></li>
+    <li><tt>list</tt></li>
+    <li><tt>dict</tt></li>
+</ul>
+
+...where "full support" means that all StorageManagers distributed with
+Dejavu MUST correctly store these types and SHOULD optimize their storage
+as well as they can. In many cases, the complex types (tuple, list, dict)
+are pickled, and indeed any other type that is not represented here tends
+to be pickled. It's important to realize, however, that different storage
+managers have complete latitude to optimize as they see fit; for example,
+the RamStorage class stores values whole, doesn't need to serialize, and
+therefore does no pickling at all.</p>
+
+<h5>datetime.datetime</h5>
+<p>If you use <tt>datetime.datetime</tt> for the type of a UnitProperty,
+most StorageManagers will throw away the microseconds. This is an
+unfortunate oversight that should be corrected sometime in the future.</p>
+
+<h4>Unit ID's</h4>
+<p>All Units possess an <tt>identifiers</tt> attribute, a tuple of
+their UnitProperty names which define the uniqueness of a Unit. The
+<tt>Unit</tt> base class possesses a single Unit Property, an int
+named 'ID', and its <tt>identifiers</tt> attribute is therefore
+<tt>('ID',)</tt>. That's a string in the tuple; older versions of Dejavu
+used a reference to the actual UnitProperty class instead. If you wish
+to use identifiers
+of a different number, types, or names, simply replace the
+<tt>identifiers</tt> attribute in your subclass:</p>
+
+<pre>class Printer(Unit):
+    # Set ID to None to remove the ID property from this subclass.
+    ID = None
+    
+    Model = UnitProperty(unicode)
+    UnitNumber = UnitProperty(int)
+    identifiers = ('Model', 'UnitNumber')
+</pre>
+
+<p>Every Unit should possess at least one identifier. This ensures that
+each Unit within the system is unique. You should consider any
+UnitProperty which is one of the identifiers to be read-only
+after a Unit has been memorized. Extremely rare applications
+(like write-only log tables) are allowed to use en empty identifiers
+tuple, but in most OLTP/OLAP scenarios, all your Units should
+have at least one identifier property.</p>
+
+<h4>Creating and Populating Properties</h4>
+<p>In addition to defining Unit Properties within your class body,
+you can define them after the class body has been executed via
+the classmethod <tt class='def'>Unit.set_property()</tt>. For example,
+the following two classes are equivalent:
+<pre>class Book(Unit):
+    Content = UnitProperty(unicode)
+
+class Book(Unit): pass
+Book.set_property('Content', unicode)</pre>
+
+Declarations outside of the class body allow more dynamic setting of
+Unit properties. You can define multiple properties at once via
+the <tt class='def'>Unit.set_properties()</tt> classmethod:
+
+<pre>class Book(Unit): pass
+Book.set_properties({'Content': unicode,
+                     'Publisher': unicode,
+                     'Year': int,
+                     })</pre>
+</p>
+
+<p>You also have options when populating Unit Properties. The standard way
+is simply to reference them as normal Python instance attributes. However,
+you may also use the <tt class='def'>adjust()</tt> method to modify
+multiple properties at once; pass in keyword arguments which match the
+properties you wish to modify. Keyword arguments also work when
+instantiating the object. For example, the following three code
+snippets are equivalent:
+
+<pre>pub = Book()
+pub.Publisher = 'Walter J. Black'
+pub.Year = 1928
+
+pub = Book()
+pub.adjust(Publisher='Walter J. Black', Year=1928)
+
+pub = Book(Publisher='Walter J. Black', Year=1928)</pre>
+</p>
+
+<h4>Unit Properties are First-Class Objects</h4>
+<p>Like many descriptors, Unit Properties behave differently when you access
+them from the class, rather than from an instance as above. When calling
+them from the class, you receive the <tt>UnitProperty</tt> object itself,
+rather than its value for a given instance. That is,
+<pre>>>> c = Printer.ColorCopies
+>>> c
+&lt;dejavu.UnitProperty object at 0x01112970></pre>
+This is significant, because it allows us to store metadata about the
+property itself:
+<pre>>>> c.type, c.index, c.hints, c.key
+(&lt;type 'bool'>, False, {}, 'ColorCopies')</pre>
+
+When you define a UnitProperty instance, you can pass in these extra
+attributes. Its signature is <tt class='def'>UnitProperty(type=unicode,
+index=False, hints={}, key=None, default=None)</tt>. Supply any, all,
+or none of them as
+needed. The <tt>key</tt> attribute is merely the property's canonical name,
+and is usually set for you. The <tt>index</tt> value tells database Storage
+Managers whether or not to index the column (if they do any indexing). The
+<tt>type</tt> attribute limits property values to instances of that type
+(or <tt>None</tt>). Finally, the <tt>hints</tt> dictionary provides hints
+to Storage Managers to help optimize storage. If you write a custom Storage
+Manager, you may define and use your own hints. Here are the ones that most
+builtin SM's understand:</p>
+
+<table>
+<tr><th>Key</th><th>Values</th><th>Description</th></tr>
+<tr>
+    <td>bytes</td>
+    <td>b &gt;= 0</td>
+    <td>Inform SMs that a particular property will never exceed <i>b</i>
+        bytes. This applies to <tt>long</tt> and <tt>int</tt> properties,
+        as well as <tt>str</tt> and <tt>unicode</tt>. A value of 0 implies
+        no limit. If not specified, a default maximum will be used. Many
+        database backends default to 255; non-database backends often have
+        no limit. Check your Storage Manager.</td>
+</tr>
+<tr>
+    <td>scale</td>
+    <td>s &gt;= 0</td>
+    <td>Scale is the number of digits to the right of the decimal point
+        in a NUMERIC (fixedpoint or decimal) field. This hint informs SMs
+        that would usually store such data at a default scale (usually 2),
+        that the property should use a different scale.</td>
+</tr>
+<tr>
+    <td>precision</td>
+    <td>p &gt;= 0</td>
+    <td>Precision is the total number of <b>decimal</b> digits in a NUMERIC
+        (<tt>fixedpoint</tt> or <tt>decimal</tt>) field, or the total
+        number of <b>binary</b> digits in a <tt>float</tt> field.
+        This hint informs SMs that the property will never exceed
+        <i>p</i> digits. If missing, the StorageManager will supply a
+        default maximum precision. For example, PostgreSQL can handle
+        1000 decimal digits. If explicitly set to 0 (zero), the
+        StorageManager will allow unlimited precision, if possible.
+        Note that the <tt>fixedpoint</tt> module uses the word
+        "precision" where we use the word "scale"; it actually has
+        unlimited precision (as we use the word). The <tt>decimal</tt>
+        module, in contrast, uses limited precision but no scale.</td>
+</tr>
+</table>
+
+
+<h4>Triggers</h4>
+<p>Triggers are behaviors which fire when the value of a Unit Property is
+changed. You can override a UnitProperty's __set__ method to achieve this
+in Dejavu. For example:
+<pre>class DatedProperty(UnitProperty):
+    def __set__(self, unit, value):
+        UnitProperty.__set__(self, unit, value)
+        unit.Date = datetime.date.today()
+        parent = unit.Forum()
+        if parent:
+            parent.Date = unit.Date
+
+class Topic(Unit):
+    Date = UnitProperty(datetime.date)
+    Content = DatedProperty()
+    ForumID = UnitProperty(int)
+
+class Forum(Unit):
+    Date = UnitProperty(datetime.date)
+
+Topic.many_to_one('ForumID', Forum, 'ID')</pre>
+In this example, whenever topic.Content is set, the <tt>__set__</tt>
+method will be called and the object's <tt>Date</tt> attribute will
+be modified. Then, the Topic's parent Forum is looked up and <i>its</i>
+<tt>Date</tt> is modified.</p>
+
+<p>As with any trigger system, you need to be careful not to have triggers
+called out of order. For example, if a user changes both the ForumID and
+Content properties in a single operation (like a web page submit), the old
+Forum will be incorrectly modified if the Content property is applied
+first. I don't have any cool tools built into Dejavu to help you with
+this, but I'm open to suggestions.</p>
+
+<h5>TriggerProperty</h5>
+<p>There is also a <tt class='def'>TriggerProperty</tt> class,
+which overrides <tt>__set__</tt> for you. If the value in question
+changes (and the unit has a sandbox), then the
+<tt class='def'>on_set(unit, oldvalue)</tt> method will be called.
+Override it in your subclass like this:
+<pre>
+class NoteContentProperty(TriggerProperty):
+    
+    def on_set(self, unit, oldvalue):
+        unit.LastModified = datetime.date.today()
+</pre>
+
+Note that, if you need to know what the <i>new</i> value is, it's
+already been set on the unit.</p>
+
+<a name='registering'><h4>Registration of Unit Classes</h4></a>
+<p>In addition to defining your Unit class, you must also register that
+class with your application's <tt>StorageManager</tt>. Each class which
+you want Dejavu to manage must be passed to
+<tt class='def'>store.register(cls)</tt>.
+If you create a module with multiple classes, you can register them all
+at once with <tt class='def'>store.register_all(globals())</tt>. It will
+grab any Unit subclasses out of your module's globals() (or any other
+mapping you pass to <tt>register_all</tt>) and register them. It then
+returns a list of the classes it found.</p>
+
+<p>The register and register_all methods also register any Associations
+you have defined between Units.</p>
+
+<p>If you're using multiple StorageManagers in a network, you must
+register classes for each of them. You can inspect which classes have
+been registered to a given store via <tt class='def'>store.classes</tt>,
+a set. You shouldn't manipulate this structure on your own; use
+<tt>register</tt> or <tt>register_all</tt> instead.</p>
+
+<p>Each <tt>StorageManager</tt> object also manages the associations
+between Unit classes in its <tt class='def'>associations</tt> attribute,
+which is a simple, unweighted, undirected graph. Whenever you register
+a Unit class, the SM will add its associations to this graph. The only
+other common operation is to call
+<tt class='def'>associations.shortest_path(start, end)</tt>,
+to retrieve the chain of associations between two Unit classes.</p>
+
+
+<a name='synchronizing'><h4>Synchronizing the Model</h4></a>
+
+<p>Any database code in a general-purpose programming language will
+eventually have to come to terms with the gap between native code
+types and native storage types. In most cases for us, this means
+matching Python types (like int and datetime) to database types
+(like INT8 and TEXT). Dejavu provides this layer for databases by
+using a mapping layer between your model code (Unit classes) and
+the underlying tables and columns. The implementation of that is
+unimportant (and possibly storage-dependent), but Dejavu needs
+to know the database types in effect in order to translate data safely.</p>
+
+<p>When you start your application, you need to call
+<tt class='def'>store.map_all(conflicts='error')</tt> <i>after</i>
+you have registered all of your Unit classes (but before you attempt
+to execute commands on them).</p>
+
+<p>If your application has created all of its own tables using Dejavu,
+then there is generally nothing to worry about in terms of the "type gap";
+Dejavu will default to creating columns of the types it knows best,
+and you may be able to set the store's <tt>auto_discover</tt> attribute
+to <tt>False</tt> and reduce application start-up time (Dejavu will use
+a mock mapping layer in this case, based on your model). But if you are
+building a Dejavu interface onto an existing database, or if you
+customize/optimize your database by hand, then you should leave
+it set to <tt>True</tt> (the default) for safety's sake.</p>
+
+
+<a name='associations'><h3>Associations between Unit Classes</h3></a>
+<p>Once you've put together some Unit classes, chances are you're going to
+want to associate them. Generally, this is accomplished by creating a
+property in the Unit_B class which stores IDs of Unit_A objects (which
+might be called <i>foreign keys</i> in a database context).
+<pre>class Archaeologist(Unit):
+    Height = UnitProperty(float)
+
+class Biography(Unit):
+    ArchID = UnitProperty(int)
+    PubDate = UnitProperty(datetime.date)</pre>
+In this example, each <tt>Biography</tt> object will have an <tt>ArchID</tt>
+attribute, which will equal the <tt>ID</tt> of some <tt>Archaeologist</tt>.
+In Dejavu terms, we say that there is a <i>near class</i> (with a <i>near
+key</i>) and a <i>far class</i> (with a <i>far key</i>). Associations in
+Dejavu are not one-way, so it doesn't matter which class you choose for the
+"near" one and which for the "far" one.</p>
+
+<p>You could stop at this point in your design, and simply remember what
+these keys are and how they relate, and manipulate them accordingly. But
+Dejavu allows you to explicitly declare these associations:
+<pre>Archaeologist.one_to_many('ID', Biography, 'ArchID')</pre>
+You pass in the the near key, the far class, and the far key.
+There are similar methods for one_to_one and many_to_one. In addition,
+there is a Unit.associate method which allows you to use your own
+relationship objects.</p>
+
+<p>What does an explicit association buy for you? First, you can
+<a href='managing.html#joins'>join</a> Units without having to remember
+which keys are related. Second, StorageManagers
+discover associations and fill the <tt>store.associations</tt> registry, so
+that smart consumer code (like <a href='managing.html#unitenginerules'>Unit
+Engine Rules</a>) can automatically follow association paths for you.
+Third, each Unit class has a private <tt>_associations</tt> attribute,
+a <tt>dict</tt>. Each Unit involved in in the association gains an entry
+in that dict: the key is the far class name,
+and the value is a UnitAssociation instance, a non-data (method) descriptor,
+with additional nearClass, nearKey, farClass, farKey, and to_many attributes.</p>
+
+<h4><tt>Unit.add()</tt></h4>
+<p>Once two classes have been associated, you attach Unit <i>instances</i>
+to each other by equating their associated properties. That was a
+mouthful. Here's an example:
+<pre>>>> evbio = Biography()
+>>> evbio.ArchID = Eversley.ID
+</pre>
+The two unit <i>instances</i> (evbio and Eversley) are now associated
+(only their <i>classes</i> were before). Keep in mind that many Unit
+instances need to be memorized in order to obtain an ID.</p>
+
+<p>Rather than forcing you to remember all of the related classes and keys,
+Dejavu Units all have an <tt>add</tt> method, which does the same thing:
+<pre>>>> evbio = Biography()
+>>> evbio.add(Eversley)
+</pre>
+The <tt>add</tt> method works in either direction, so you could just as
+well write:
+<pre>>>> evbio = Biography()
+>>> Eversley.add(evbio)
+</pre>
+The <tt>add</tt> method will take any number of unit instances as
+arguments, and add each one in turn. That is:
+<pre>
+>>> evbio1 = Biography()
+>>> evbio2 = Biography()
+>>> evbio3 = Biography()
+>>> Eversley.add(evbio1, evbio2, evbio3)
+</pre>
+</p>
+
+<h4>"Related units" methods</h4>
+<p>To make querying easier, each of the two Unit classes involved in an
+association will gain a new
+"related units" method which simplifies looking up related instances
+of the other class. The new method for Unit_B will have the name of Unit_A,
+and vice-versa. In our example:
+<pre>>>> Archaeologist.Biography
+&lt;unbound method Archaeologist.related_units>
+
+>>> Eversley = Archaeologist(Height=6.417)
+>>> Eversley.Biography
+&lt;bound method Archaeologist.related_units of &lt;__main__.Archaeologist
+object at 0x011A1930>>
+
+>>> bios = Eversley.Biography()
+>>> bios
+[&lt;arch.Biography object at 0x01158E10>,
+ &lt;arch.Biography object at 0x0118B350>,
+ &lt;arch.Biography object at 0x0118B170>]
+>>> evbio1.Archaeologist()
+&lt;__main__.Archaeologist object at 0x011A1930>
+</pre>
+We've only created three Biographies at this point, so we can print the list
+easily. At the other extreme (when you have hundreds of Biographies to filter),
+you can pass an optional <tt>Expression</tt> object or keyword arguments
+to the "related units" method, just like you can with
+<a href='managing.html#recall'><tt>recall</tt></a>.
+When you do, the list of associated Units will be filtered accordingly.</p>
+
+<p>Notice that, because our relationship is one-to-many, <b>the two
+"related units" methods behave differently</b>. The "one"
+(Archaeologist) which is retrieving the "many" (Biography) retrieves
+a list. The "many" retrieving the "one" retrieves a single Unit.
+When retrieving "to-one", the result will always be a single Unit
+(or None if there is no matching Unit). When retrieving "to-many",
+the result will always be a list, (it will be empty if there are
+no matches).</p>
+
+<p>Because the "related units" method names are formed automatically, you need
+to <b>take care not to use the names of Unit classes for your Unit properties</b>.
+In our example, we used "ArchID" for the name of our "foreign key". If we
+had used "Archaeologist" instead, we would have had problems; when we
+associated the classes, the <i>property</i> named "Archaeologist" would
+have collided with the <i>"related units" method</i> named "Archaeologist".
+Be careful when naming your properties, and plan for the future. The best
+approach is probably to end your property name with "ID" every time.</p>
+
+<p>Unlike some other ORM's, Dejavu doesn't cache far Units within the near
+Unit. Each time you call the "related units" method, the data is recalled
+from your Sandbox. It is quite probable that those far Units are still
+sitting in memory in the Sandbox, but they're not going to persist in
+the near Unit itself in any way.</p>
+
+<p>Finally, some of you may want to override the default "related units"
+methods. Feel free; <tt>Unit.associate</tt> takes two optional arguments,
+which should be subclasses of the UnitAssociation descriptor. See the
+source code for more information.</p>
+
+<h4>Custom Unit Associations</h4>
+
+<p>Sometimes you need an association between two classes that is more complicated.
+For example, you might have an Archaeologist object and want to retrieve
+just their <i>last</i> Biography. Here's an example of how to do this:
+<pre>class LastBiographyAssociation(dejavu.UnitAssociation):
+    """Unit Association to relate an Archaeologist to their last Biography."""
+    
+    to_many = False
+    register = False
+    
+    def related(self, unit, expr=None, **kwargs):
+        bios = unit.Biography(expr, order=["PubDate DESC"], **kwargs)
+        try:
+            return bios.next()
+        except StopIteration:
+            return None
+
+descriptor = LastBiographyAssociation(u'ID', Biography, u'ID')
+descriptor.nearClass = Archaeologist
+Archaeologist._associations["Last Biography"] = descriptor</pre>
+
+There are a couple of things to note, here. We are basically doing by
+hand what the <tt>associate</tt> method does for you automatically, but
+that method makes <i>two</i> associations (one in each direction), and
+we're only making one. The <tt class='def'>related(unit, expr, **kw)</tt>
+method is overridden to do the actual lookup of far units. Because the
+<tt>to_many</tt> attribute is False, <tt>related</tt> returns a single
+Unit, or None. Finally, the <tt>register</tt> attribute, when False,
+keeps the store from registering this association in its graph
+(see <a href='#registering'>Registration</a>, above).</p>
+
+<a name='many-to-many'><h4>Many-to-many Associations</h4></a>
+
+<p>Sometimes you need an association between two classes (or even the
+same class) where "many" relate to "many". For example, an Author
+might have pulished many books, which might each possess multiple authors.
+There are several techniques to implement this; here we provide the simplest
+one and leave the rest as an exercise (in Internet search) for the reader.</p>
+
+<p>Lots of relational stores like databases and so on do not provide mechanisms
+for many-to-many relationships; they only provide one-to-many (or many-to-one,
+which is the same thing). The easiest way to do many-to-many is to add an
+intermediate table to contain the association itself. In our example, we
+might add a new Unit class to model the 'authorship' association:
+
+<pre>class Authorship(Unit):
+    AuthorID = UnitProperty(int)
+    BookID = UnitProperty(int)
+Author.one_to_many('ID', Authorship, 'AuthorID')
+Book.one_to_many('ID', Authorship, 'BookID')
+</pre></p>
+
+<img src='many2many.gif' />
+
+<p>A query for the titles of all books written by Sholem Aleichem might
+look like this:
+
+<pre>>>> author = box.unit(Author, Name='Sholem Aleichem')
+>>> list(box.view((Authorship &lt;&lt; Book, [[], ['Title']],
+                   lambda a, b: a.AuthorID == author.ID)))
+[u"Yossele Solovey", u"Tevye's Daughters", u"Mottel the Cantor's son"]
+</pre>
+</p>
+
+
+<a name='schemas'><h3>Managing Schemas</h3></a>
+
+<h4>Conflicts</h4>
+
+<p>Dejavu helps you make a <i>model</i> (in Python code) that matches some
+<i>reality</i> (like an RDBMS, file, or cache) elsewhere. Because both the
+model and reality can change independently, you'll find <i>conflicts</i>
+between them from time to time. The most common occurrence of such conflicts
+is during a call to <tt>map_all</tt>, since it tries to match up your entire
+model to reality. Similar conflicts arise whenever you ask Dejavu to make
+changes to reality: add an index, drop storage, or rename a property.</p>
+
+<p>When conflicts may occur, Dejavu adds a <tt>conflicts</tt> argument to
+the method arguments. The value you supply for this argument tells Dejavu
+what to do if a conflict arises:</p>
+
+    <ul>
+    <li><b>error</b>: This is the default value. <tt>MappingError</tt> is
+        raised for the first conflict and the call is aborted.</li>
+    <li><b>warn</b>: StorageWarning is raised (instead of an error) for
+        each issue, and the call is not aborted. This allows you to see all
+        errors at once, without having to stop and fix each one and then
+        execute the call again.</li>
+    <li><b>repair</b>: Each issue will be resolved by changing the database
+        to match the model. Not all calls support this mode for all errors;
+        any which do not support this mode will error instead.</li>
+    <li><b>ignore</b>: Any model conflicts are silently ignored. Use of this
+        mode causes mandelbugs. You have been warned.</li>
+    </ul>
+
+<h4>Installation</h4>
+
+<p>Since this procedure typically happens once per deployed application,
+Dejavu doesn't try to over-engineer it. But the deployer will still have
+to go through an installation step at some point. Dejavu offers minimal
+library calls on top of which you can then build installation tools
+(and upgrade, and uninstall tools).</p>
+
+<p>For example, a simple install process could look like this:</p>
+
+<pre>
+elif cmd == "install":
+    store.log = getlogger(os.path.join(os.getcwd(), localDir, "install.log"))
+    store.logflags = logflags.ERROR + logflags.SQL + logflags.SANDBOX
+    
+    print "Creating databases...",
+    store.create_database()
+    print "ok"
+    
+    print "Creating tables...",
+    store.map_all(conflicts='repair')
+    print "ok"
+    
+    sys.exit(0)
+</pre>
+
+<p>In addition to <tt class='def'>create_database(conflicts='error')</tt>,
+all Storage Managers also have
+<tt class='def'>drop_database(conflicts='error')</tt> and
+<tt class='def'>has_database()</tt> methods.</p>
+
+<h4>Modifying Storage Structures</h4>
+
+<p>The <tt>StorageManager</tt> class has some methods to help you make
+changes to keep storage structures in sync with changes to your Unit
+classes. For example, let's say that we deploy our
+Archaeology-Biography application at various libraries around the world.
+After a year, one of the developers wishes to implement a new reporting
+feature; however, it would be easiest to build if the Unit Property names
+could be exposed to the users. Unfortunately, our "ArchID" property on the
+Biography class isn't very informative. It would be better if we could
+rename that to "ArchaeologistID":</p>
+
+<pre>
+store.rename_property(Biography, "ArchID", "ArchaeologistID")
+</pre>
+
+<p>Assuming we've already made the change to our model, the above example
+renames the property in the persistence layer (the database) using the
+<tt class='def'>rename_property(cls, oldname, newname, conflicts='error')</tt>
+method. Additional <tt>StorageManager</tt> methods:</p>
+
+<p>Unit classes (tables):</p>
+<ul>
+<li><tt class='def'>create_storage(cls, conflicts='error')</tt></li>
+<li><tt class='def'>has_storage(cls)</tt></li>
+<li><tt class='def'>drop_storage(cls, conflicts='error')</tt></li>
+</ul>
+
+<p>Unit properties (columns):</p>
+<ul>
+<li><tt class='def'>add_property(cls, name, conflicts='error')</tt></li>
+<li><tt class='def'>has_property(cls, name)</tt></li>
+<li><tt class='def'>drop_property(cls, name, conflicts='error')</tt></li>
+</ul>
+
+<p>Unit property (column) indices:</p>
+<ul>
+<li><tt class='def'>add_index(cls, name, conflicts='error')</tt></li>
+<li><tt class='def'>has_index(cls, name)</tt></li>
+<li><tt class='def'>drop_index(cls, name, conflicts='error')</tt></li>
+</ul>
+
+
+<h4>Upgrading: Schema Objects</h4>
+
+<p>The <tt>Schema</tt> class helps you manage changes to your Dejavu model
+throughout its lifetime. Taking our <tt>rename_property</tt> example from
+above, we can rewrite it in a Schema obejcts like this:</p>
+
+<pre>class ArchBioSchema(dejavu.Schema):
+    
+    guid = 'da39a3ee5e6b4b0d3255bfef95601890afd80709'
+    latest = 2
+    
+    def upgrade_to_2(self):
+        self.store.rename_property(Biography, "ArchID", "ArchaeologistID")
+
+abs = ArchBioSchema(store)
+abs.upgrade()
+</pre>
+
+<p>The example declares this change to be "version 2" of our schema.
+If you examine the base Schema class, you will see that it already has an
+<tt>upgrade_to_0</tt> method. The "zeroth" upgrade makes no schema changes;
+it merely marks all deployed databases with "version 0". I skipped version
+1 in the example, just in case I need some setup code in the future ;).</p>
+
+<p>If you call <tt class='def'>schema.upgrade(version)</tt> with a
+version argument, then your deployment will be upgraded to that version.
+If no argument is given, the installation will be upgraded to
+<tt>schema.latest</tt>. You can even skip steps (i.e. remove methods
+for broken steps) if it comes to that.</p>
+
+<p>Each Schema also has a <tt class='def'>stage</tt> attribute.
+While an upgrade is in process, this value will be an int, the same number
+as that of the upgrade method. That is, while upgrade_to_2 is running,
+<tt>stage</tt> will be 2. If no upgrade method is running, <tt>stage</tt>
+will be None.</p>
+
+<p>After you run <tt>upgrade</tt>, you can call the
+<tt class='def'>assert_storage</tt> method of the Schema object
+to tell Dejavu to create storage (tables in your database)
+for all the Unit classes registered in your store.
+If storage already exists for a given class, it is skipped.</p>
+
+<p><b>Please note:</b> the installed version defaults to "latest". This
+allows new installs to skip all the upgrade steps, and just use the latest
+class definitions when they call <tt>assert_storage</tt>. However, it means
+that if you deploy your apps for a while without a Schema, and then
+introduce one later, you must manually decrement DeployedVersion from
+"latest" to the actual deployed version *before* running your app for the
+first time (or things will break due to the difference between the latest
+and deployed schema).</p>
+
+
+<h4>Versions: The DeployedVersion Unit</h4>
+
+<p>The <tt>Schema</tt> class uses a magic table in the database to keep
+track of each deployment's schema version. The Unit class is called
+"DeployedVersion", and it has ID and Version attributes.</p>
+
+<p>The ID attribute will be set to whatever your <tt>Schema.guid</tt>
+is. It's a simple way to isolate multiple installed Dejavu applications.
+A given application should use the same guid throughout its lifetime.
+I used <tt>sha.new().hexdigest()</tt> to generate the example. Feel free
+to use sha.new, a guid generator, a descriptive name, or whatever you
+like.</p>
+
+
+<a name='autoclass'><h3>Automatic Unit Classes</h3></a>
+
+<p>When you create your first Dejavu model, you might be forming it
+to match some existing database schema. If so, Dejavu has a
+<tt>Modeler</tt> tool to help you inside <tt>dejavu.storage.db</tt>.
+</p>
+
+<p>The <tt class='def'>make_class(tablename, newclassname=None)</tt>
+method finds an existing Table by name and returns a subclass
+of Unit which models that table. By default, the new class
+will have the same name as the database table; supply the
+'newclassname' argument to use a different name (for example,
+to capitalize the class name).</p>
+
+<pre>
+>>> from dejavu import storage
+>>> from dejavu.storage import db
+>>> sm = storage.resolve('mysql',
+                         {"host": "localhost", "db": "existing_db",
+                          "user": "root", "passwd": "xxxx",
+                          })
+>>> modeler = db.Modeler(sm.schema)
+>>> Zoo = modeler.make_class("zoo", "Zoo")
+>>> Zoo
+&lt;class 'dejavu.storage.db.Zoo'>
+>>> Zoo.properties
+['id', 'name', 'admission', 'founded', 'lastescape', 'opens']
+</pre>
+
+<p>The <tt class='def'>make_source(tablename, newclassname=None)</tt>
+method does the same thing as <tt>make_class</tt>, but returns a string
+that contains valid Python code to generate the requested Unit class:</p>
+
+<pre>
+>>> print modeler.make_source("exhibit", "Exhibit")
+class Exhibit(Unit):
+    pettingallowed = UnitProperty(bool)
+    animals = UnitProperty(str)
+    name = UnitProperty(str)
+    zooid = UnitProperty(int)
+    acreage = UnitProperty(decimal.Decimal)
+    creators = UnitProperty(str)
+    # Remove the default 'ID' property.
+    ID = None
+    identifiers = ('name', 'zooid')
+    sequencer = UnitSequencer()
+</pre>
+
+<p>Finally, you can perform this sort of modeling on <i>all</i> tables
+in a database at once with the <tt class='def'>all_classes()</tt> and
+<tt class='def'>all_source()</tt> methods of the Modeler. These simply
+iterate over all of the known tables and return the results in a list
+instead of a single value.</p>
+
+<hr />
+
+</body>
+</html>

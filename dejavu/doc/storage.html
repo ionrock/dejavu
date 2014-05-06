@@ -1,0 +1,988 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Dejavu: Configuring Storage</title>
+    <link href='dejavu.css' rel='stylesheet' type='text/css' />
+
+<style type='text/css'>
+
+td.notsup {
+    background-color: #FFCCCC;
+}
+
+td.python {
+    background-color: #FFFFCC;
+}
+
+</style>
+</head>
+
+<body>
+
+<h2>Deployers: Configuring Storage</h2>
+
+<p>The topmost object in Dejavu is a <tt>StorageManager</tt> object.
+When building a Dejavu application, you must first create a
+StorageManager instance, and must find a way to persist this object
+across client connections. This can be achieved in multiple ways;
+web applications, for example, will typically create a single process
+to serve all requests. Desktop applications will probably create a
+single StorageManager object for each running instance of the program.</p>
+
+<p>Storage Managers insulate an application developer from the specifics of
+databases, query languages, and cache mechanisms. As the <i>deployer</i> of
+a Dejavu application, you get to be in control of these specifics. But
+don't worry; in the vast majority of cases, you will set up a single
+database with just two lines in a configuration file. Often, the
+application developer will have already prepared default config files
+which you can simply "plug and play". But if you <i>need</i> more control
+over your data storage, you have it.</p>
+
+<p>When you deploy an app built with Dejavu, you must specify Storage
+Managers to use for persisting application objects. This is usually
+done through an ini-style configuration file, although Dejavu itself
+doesn't currently provide a parser for that. Here's a short example
+of configuring a store in Python:
+<pre>
+from dejavu import storage
+opts = {'connections.Connect': "PROVIDER=MICROSOFT.JET.OLEDB.4.0;DATA SOURCE=D:\data\junct.mdb;"}
+root = storage.resolve("access", opts)
+</pre>
+The <tt class='def'>storage.resolve(store, options=None)</tt> call
+tells Dejavu the <i>class</i> of SM we'd like to use.
+For most applications, you'll decide which class to use based on the
+database you want to use. Our example declares that we want to persist our
+application data in an "MS Access" (i.e., Jet) database. You may supply a
+known short name (like "sqlite") or the full dotted-package name.
+<tt class='def'>storage.managers</tt> is a dict of short names to
+full classes (or dotted class names). If you're including Dejavu in
+a larger framework, feel free to add to this registry.</p>
+
+<p>The options dict we pass in our example includes a standard ADO Connect
+string. The MS Access class requires this entry; other SM's may not.</p>
+
+
+<a name='databases'><h3>Database Storage Managers</h3></a>
+
+<h4>Microsoft SQL Server / Microsoft Access (Jet)</h4>
+<p>This module was developed against ADO 2.7 and 2.8,
+    using MSDE, SQL Server 2000/2005, and Access 2000.</p>
+
+<p>Classes:</p>
+<ul>
+    <li>"sqlserver" (<tt>dejavu.storage.storeado.StorageManagerADO_SQLServer</tt>)</li>
+    <li>"[ms]access" (<tt>dejavu.storage.storeado.StorageManagerADO_MSAccess</tt>)</li>
+</ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>connections.Connect:</b> A valid ADO connect string. There are
+        plenty of online references for how to form these; for example, at
+        <a href='http://support.microsoft.com/?kbid=193332'>Microsoft</a>.</li>
+</ul>
+
+<h4>PostgreSQL</h4>
+<p>This class was developed against
+    PostgreSQL 8.0.0 rc-1 (Win2k),
+    PostgreSQL 8.2.4 on i686-pc-mingw32 (Vista),
+    and also tested on
+    PostgreSQL 7.6.6-6 on Debian "sarge",
+    using
+    pyPgSQL-2.5.1 and psycopg2-2.0.6/2.0.5.1
+</p>
+
+<p>Classes:</p>
+<ul>
+    <li>"postgres[ql]" or "pypgsql" (<tt>dejavu.storage.storepypgsql.StorageManagerPgSQL</tt>)</li>
+    <li>"psycopg[2]" (<tt>dejavu.storage.storepsycopg.StorageManagerPsycoPg</tt>)</li>
+</ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>connections.Connect:</b> A connect string of the form "k=v k=v". For example,
+        <tt>"host=localhost dbname=myapp user=postgres password=hilar1ous"</tt>.
+        See the <a href='http://www.postgresql.org/docs/current/static/libpq.html'>libpq</a>
+        docs for complete information.</li>
+</ul>
+
+<h4>MySQL (MySQLdb)</h4>
+<p>This class was developed against
+    mysql  Ver 14.7 Distrib 4.1.8, for Win95/Win98 (i32),
+    and also tested on
+    mysql  Ver 12.22 Distrib 4.0.23, for pc-linux-gnu (i386), and
+    5.0.45.community.nt (Vista)
+</p>
+
+<p>Classes:</p>
+<ul>
+    <li>"mysql" (<tt>dejavu.storage.storemysql.StorageManagerMySQL</tt>)</li>
+</ul>
+
+<p>Options:</p>
+<ul>
+    <li>Connection arguments: any of "host", "user", "passwd", "db", "port",
+        "unix_socket", "client_flag".<br />See the
+        <a href='http://dev.mysql.com/doc/mysql/en/mysql_real_connect.html'>docs</a>
+        for complete info.</li>
+</ul>
+
+<h4>SQLite (pysqlite/sqlite3)</h4>
+<p>This class was developed against
+    sqlite 3.0.8 (pysqlite-1.1.6.win32-py2.3),
+    sqlite 3.3.3 (pysqlite-1.1.7.win32-py2.4),
+    sqlite 2.8.15-3 on Debian "sarge",
+    sqlite 3.3.4 (python 2.5 on win2k),
+    and sqlite 3.4.0 (pysqlite-2.3.5.win32-py2.4) on Vista.
+    If you have Python 2.5 or later, the builtin _sqlite3 library
+    will be used; otherwise, you need to install pysqlite.
+</p>
+
+<p>Classes:</p>
+<ul>
+    <li>"sqlite" (<tt>dejavu.storage.storesqlite.StorageManagerSQLite</tt>)</li>
+</ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Database:</b> Filename of the database. May be a relative path.</li>
+    <li><b>Mode:</b> Optional. DB file mode. Defaults to 0755.</li>
+</ul>
+
+
+<h4>Firebird (kinterbasdb)</h4>
+<p>This class was developed against:
+    <ul>
+        <li>KInterbasDB Version: (3, 2, 0, 'alpha', 1) and
+            Server Version: 'WI-V1.5.2.4731 Firebird 1.5' on Win2k,</li>
+        <li>KInterbasDB Version: (3, 2, 0, 'final', 0) and
+            Server Version: 'WI-V2.0.3.12981 Firebird 2.0' on Vista.</li>
+    </ul>
+</p>
+
+<p>Classes:</p>
+<ul>
+    <li>"firebird" (<tt>dejavu.storage.storefirebird.StorageManagerFirebird</tt>)</li>
+</ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Name:</b> Filename of the database. Must be an absolute path.</li>
+    <li><b>Host:</b> The TCP host name, usually "localhost".</li>
+    <li><b>User:</b> The user name (e.g. "sysdba").</li>
+    <li><b>Password:</b> The password for the given user name.</li>
+    <li><b>Encoding:</b> The charset to be used in each connect() call.</li>
+</ul>
+
+<p><b>The Firebird Storage Manager is new and not yet fully thread-safe.
+Patches welcome.</b></p>
+
+<h4>Common Database Configuration Entries</h4>
+<p>In addition to the above, Storage Managers for databases (probably)
+accept these additional options:</p>
+
+<table>
+<tr><th>Key</th><th>Example Value</th><th>Description</th></tr>
+<tr>
+    <td>schemaclass.prefix</td>
+    <td><tt>myapp_</tt></td>
+    <td>Optional. If specified, all tables in the database will have names
+    starting with this prefix. If not provided, it defaults to "" (empty).
+    This helps if you need to mix Dejavu tables with tables from another
+    application. Leave blank if you want no prefix.</td>
+</tr>
+<tr>
+    <td>connections.poolsize</td>
+    <td><tt>10</tt></td>
+    <td>Optional. Defaults to 10. If nonzero, connections will be pooled
+        (up to a total equal to <i>Pool Size</i>). If zero, no pool
+        will be used; each statement (!) will use a new connection.</td>
+</tr>
+<tr>
+    <td>connections.implicit_trans</td>
+    <td><tt>False</tt></td>
+    <td>Optional. Defaults to False. If True, a new connection will
+        automatically call "START TRANSACTION". It will also be associated
+        with the current thread, and any subsequent calls on the same thread
+        will then return the same connection object.</td>
+</tr>
+<tr>
+    <td>connections.contention</td>
+    <td><tt>'commit'</tt></td>
+    <td>Optional. If 'commit' (the default), schema-modifying commands
+        (e.g. add_property) will autocommit any pending transactions.
+        Change this to 'error' if you'd rather play it safe.</td>
+</tr>
+<tr>
+    <td>connections.default_isolation</td>
+    <td><tt>"READ COMMITTED"</tt></td>
+    <td>Optional. All database SM's already have a value for this, but you
+        can select another if you wish. This value should be a "native value"
+        for your database's particular transaction mechanisms. For example,
+        PostgreSQL uses ANSI/SQL names like "READ COMMITTED", but Firebird
+        uses library constants like <tt>kinterbasdb.isc_tpb_read_committed</tt>.</td>
+</tr>
+</table>
+
+
+<a name='other'><h3>Other Storage Managers</h3></a>
+
+<h4>RAM</h4>
+<p>Persists Units in RAM; all Units are lost when the process exits.</p>
+
+
+<h4>Memcached</h4>
+
+<p><b>External Dependency:
+    <a href='http://www.tummy.com/Community/software/python-memcached/'
+        >python-memcached</a></b></p>
+
+<p>Persists Units to a set of
+<a href='http://www.danga.com/memcached/'>memcached</a> servers.
+This is an extremely simple implementation; every value that is not
+of type <tt>str</tt> or <tt>int</tt> is pickled. Querying will be slow--
+every Unit is sucked in one-by-one and tested in pure Python.
+But for many cache applications, you don't need heavyweight query tools.</p>
+
+<p>Classes:</p>
+<ul><li>"memcache[d]" (<tt>dejavu.storage.storememcached.MemcachedStorageManager</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>name:</b> Required. This string will be used to form namespaced
+        memcached keys.</li>
+    <li><b>memcached.servers:</b> Required. A list of strings of the form
+        'IP-address:port'. These will be passed directly into the
+        memcache.Client instance.</li>
+    <li><b>memcached.indexed:</b> if True (the default), this store will
+        maintain an index of all stored objects in memcached itself. This
+        is the 'safe' choice, and necessary if your only store is memcached.
+        If you run this store as an ObjectCache.cache, however, you should
+        turn this off, allowing ObjectCache.nextstore to maintain the
+        indexes--this allows the cache to run orders of magnitude faster.</li>
+</ul>
+
+
+<h4>JSON</h4>
+
+<p><b>External Dependency:
+    <a href='http://undefined.org/python/#simplejson'>simplejson</a></b></p>
+
+<p>Persists Units to a filesystem, one folder per class. Each folder
+contains files, one per Unit, with the Unit identity as the file name.
+Each of those unit files contains a JSON dict of Unit property values.
+For example:</p>
+
+<pre>
+root/
+    Album/
+    |   78952.json
+    Song/
+        1372.json
+        88.json
+</pre>
+
+<p>Querying will be slow--every Unit is sucked in one-by-one and tested in
+pure Python. This is a good choice for test data or system tables--store
+the data in JSON format for pretty version-control diffs, then migrate it
+to another store when you run the tests or start the application.</p>
+
+<p>Classes:</p>
+<ul><li>"json" (<tt>dejavu.storage.storejson.StorageManagerJSON</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>root:</b> Required. The file path (directory) in which to
+        place db files. Each Unit class will get its own subfolder,
+        of the same name as the class.</li>
+    <li><b>mode:</b> Optional. The mode arg to pass to <tt>os.mkdir</tt>
+        when creating folders. Defaults to '0777'.</li>
+    <li><b>idsepchar:</b> Optional. The character to use for separating
+        unit identities which are multivalent. Defaults to '_' (underscore).
+        For example, a Unit with <tt>identifiers = ('Name', 'DOB')</tt>
+        would get a folder name like 'Fred_20040321'.</li>
+    <li><b>encoding:</b> Passed to the simplejson.Decoder.</li>
+    <li><b>skipkeys:</b> Passed to the simplejson.Encoder.
+        Defaults to False.</li>
+    <li><b>check_circular:</b> Passed to the simplejson.Encoder.
+        Defaults to True.</li>
+    <li><b>allow_nan:</b> Passed to the simplejson.Encoder.
+        Defaults to False.</li>
+    <li><b>indent:</b> Passed to the simplejson.Encoder.
+        Defaults to None.</li>
+</ul>
+
+
+<h4>Shelve</h4>
+<p>Persists Units to shelve-type files. Extremely simple implementation;
+everything is pickled. Querying will be slow--every Unit is sucked in
+one-by-one and tested in pure Python using <tt>Expression(unit)</tt>.
+But for many applications, you don't need heavyweight query tools;
+for example, an online forum may only need topic content looked up by ID.
+Or small system tables that only get read at startup might benefit.</p>
+
+<p class='warning'><b>Developers note:</b> The shelve implementation in
+Dejavu does not use "writeback"; that is, changes you make to data are
+stored only in memory until each shelf has its <tt>close</tt> method
+called. If <tt>close</tt> is never called, your changes are lost!
+The easiest way to ensure that your changes are saved is to call
+store.shutdown() when your app is closing. Since one of the design
+goals of Dejavu is to allow deployers to choose which backend to use,
+your applications should <i>always</i> guarantee that store.shutdown()
+is called on program exit.</p>
+
+<p>Classes:</p>
+<ul><li>"shelve" (<tt>dejavu.storage.storeshelve.StorageManagerShelve</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Path:</b> The file path (directory) in which to place db files.
+        Each Unit subclass will get its own file, of the same name as the
+        subclass.</li>
+</ul>
+
+
+<h4>Folders</h4>
+<p>Persists Units to a filesystem, one folder per class. Each folder
+contains subfolders, one per Unit, with the Unit identity as the folder
+name. Each of those unit folders contains one file for each Unit
+Property. For example:</p>
+
+<pre>
+root/
+    Album/
+    |   78952/
+    |       Name.txt
+    |       Artist.txt
+    Song/
+        1372/
+        |   AlbumID.txt
+        |   Data.mp3
+        88/
+            AlbumID.txt
+            Data.mp3
+</pre>
+
+<p>This is an extremely simple implementation; every value that is not
+of type <tt>str</tt> is pickled. Querying will be slow--every Unit is
+sucked in one-by-one and tested in pure Python.
+But for many applications, you don't need heavyweight query tools;
+for example, an upload site may only need files looked up by ID.</p>
+
+<p>Classes:</p>
+<ul><li>"folders" (<tt>dejavu.storage.storeshelve.StorageManagerShelve</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>root:</b> Required. The file path (directory) in which to
+        place db files. Each Unit class will get its own subfolder,
+        of the same name as the class.</li>
+    <li><b>mode:</b> Optional. The mode arg to pass to <tt>os.mkdir</tt>
+        when creating folders. Defaults to '0777'.</li>
+    <li><b>idsepchar:</b> Optional. The character to use for separating
+        unit identities which are multivalent. Defaults to '_' (underscore).
+        For example, a Unit with <tt>identifiers = ('Name', 'DOB')</tt>
+        would get a folder name like 'Fred_20040321'.</li>
+    <li><b>extdefault:</b> Optional. The default file extension to use
+        for Unit Property files. Defaults to '.txt'.</li>
+    <li><b>&lt;unit&gt;.&lt;propname&gt;:</b> Optional. The value should
+        be the file extension for properties of the given propname
+        for the given unit class. For example, <tt>Song.Data = .mp3</tt>
+        (be sure to include the leading 'dot' if you want one).</li>
+</ul>
+
+
+<a name='middleware'><h3>Middleware</h3></a>
+
+<p>Some Storage Managers act as "middleware", and can be chained together
+to provide layered functionality. Consider, for example, the
+<tt>ObjectCache</tt> class; it has another Storage Manager
+"behind it", which it proxies. It can be used to cache objects between
+client connections independently from the underlying, database-specific
+Storage Manager. The beauty of this design is that the decision to
+use a ObjectCache is completely up to the deployer, <i>not</i> the
+application developer. The deployer can separate stores, test response
+times, and address other integration concerns on their own systems.</p>
+
+<h4>Object Cache</h4>
+<p>Use this class to persist Units in memory between client connections.
+It must proxy another Storage Manager.</p>
+
+<p>Classes:</p>
+<ul><li>"cache" (<tt>dejavu.storage.caching.ObjectCache</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Next Store:</b> Required. The next Storage Manager in the chain.</li>
+    <li><b>cache:</b> Optional. The Storage Manager to use for the cache.
+        If not given, it defaults to a RAM store.</li>
+</ul>
+
+<h4>Aged Cache</h4>
+<p>Use this class to persist Units in memory between client connections.
+It must proxy another Storage Manager.</p>
+
+<p>Classes:</p>
+<ul><li>"aged" (<tt>dejavu.storage.caching.AgedCache</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Next Store:</b> Required. The next Storage Manager in the chain.</li>
+    <li><b>cache:</b> Optional. The Storage Manager to use for the cache.
+        If not given, it defaults to a RAM store.</li>
+    <li><b>Lifetime:</b> Optional. The recurrence string which declares
+        how often to sweep Units out of the in-memory cache. The string you
+        supply should be one of the following types:
+        <ul>
+            <li><b>By units (intervals):</b> "3 hours" will run every 3
+                hours. "7 days" or "1 week" will run once each week.</li>
+            <li><b>Daily:</b> "14:00 each day" will run at 2:00 P.M.
+                every day.</li>
+            <li><b>Weekly:</b> "Mon", "Monday", or "Mondays" will run once
+                each Monday.</li>
+            <li><b>Monthly:</b> "20 each month" will run on the 20th of
+                each month. "0 every month" will run on the <i>last</i>
+                day of each month.</li>
+        </ul>
+        See the <tt>recur</tt> module for complete options.
+    </li>
+</ul>
+
+
+<h4>Burned Cache</h4>
+<p>Use this class to persist Units in memory between client connections.
+It needs another Storage Manager to proxy. Unlike the ObjectCache above,
+this Storage Manager recalls all Units at once upon the first request,
+and won't recall them again from storage. They are "burned" into memory
+for the lifetime of the application.</p>
+
+<p>Classes:</p>
+<ul><li>"burned" (<tt>dejavu.storage.caching.BurnedCache</tt>)</li></ul>
+
+<p>Options:</p>
+<ul>
+    <li><b>Next Store:</b> Required. The next Storage Manager in the chain.</li>
+    <li><b>cache:</b> Optional. The Storage Manager to use for the cache.
+        If not given, it defaults to a RAM store.</li>
+</ul>
+
+<a name='partitioning'><h3>Partitioning</h3></a>
+
+<h4>Vertical Partitioner</h4>
+<p>This class replaces the old Arena object from Dejavu 1.x. It allows you
+to aggregate multiple stores into a single interface, partitioned by Unit
+class. Unlike most other StorageManagers, it takes no options. Instead,
+you will generally set this as the root of your storage graph and
+repeatedly call its <tt class='def'>add_store(name, store)</tt> method.
+There's also a corresponding <tt class='def'>remove_store(name)</tt>
+method.</p>
+
+<p>Once you've added stores, the <tt class='def'>stores</tt> attribute is a
+dict from store names to StorageManager instances. However, you shouldn't
+manipulate this directly--use add/remove_store instead. When you call
+add_store, it will also set up the partitioner's <tt class='def'>classmap</tt>
+attribute, which is used to direct queries and other command to the correct
+store(s) based on the class. DDL methods will generally dispatch to all
+stores for each class. DML methods will generally dispatch to
+<tt>classmap[unit.__class__][0]</tt>; those which involve multiple
+classes (e.g. multirecall), will try to find a single store which
+handles all classes in the given relation. To override this default
+search, you can add entries to <tt>classmap</tt> of the form:
+<tt>{(clsA, clsB, clsC): [store1]}</tt>, which instructs the
+partitioner to use the given store for any Join with the same
+order, such as <tt>(clsA &lt;&lt; clsB) &amp; clsC</tt>.</p>
+
+<p>For example:
+<pre>
+from dejavu import storage
+from dejavu.storage import partitions
+
+opts = {'connections.Connect': "PROVIDER=MICROSOFT.JET.OLEDB.4.0;DATA SOURCE=D:\data\users.mdb;"}
+userdb = storage.resolve("access", opts)
+for cls in [Contact, Group, Role, User]:
+    userdb.register(cls)
+
+opts = {'connections.Connect': "host=localhost dbname=payroll user=holmstrom password=emptynet"}
+payrolldb = storage.resolve("psycopg", opts)
+for cls in [Agreement, Payments, Schedule]:
+    payrolldb.register(cls)
+
+root = partitions.VerticalPartitioner()
+root.add_store('users', userdb)
+root.add_store('payroll', payrolldb)
+
+</pre>
+</p>
+
+<p>Classes:</p>
+<ul><li><tt>dejavu.storage.partitions.VerticalPartitioner</tt></li></ul>
+
+<p>Options:</p>
+<ul>
+    <li>None</li>
+</ul>
+
+<a name='comparison'><h3>SM Comparison Chart</h3></a>
+
+<p>When selecting a storage implementation, you should be aware of the
+strengths and limitations of each option. The following chart should help
+you decide.</p>
+
+<p>First, it shows you which stores do and do not support certain
+optional features of Dejavu. Your application developer should provide you
+with a list of any features which they <i>require</i>.</p>
+
+<p>Second, it shows you which stores have performance or boundary issues
+and where. When developing applications, you should avoid these issues
+either by coding alternative solutions, or by recommending to your
+deployers that they avoid the problematic stores. Note that some
+limitations are inherent in the storage mechanism itself, while some
+are limitations of the current Storage Manager for that mechanism.</p>
+
+<ul>
+    <li><b>Y</b>: The store supports the feature natively.</li>
+    <li><b>P</b>: The store does not provide the feature natively, but
+        Dejavu provides a fallback in pure Python (which may be slower).
+        Boundaries and limitations are therefore Python limits.</li>
+    <li><b>N</b>: The store does not allow the feature at all.</li>
+    <li>&lt;blank&gt;: Unknown/not yet documented.</li>
+</ul>
+
+<table>
+<tr>
+    <th></th>
+    <th>access</th>
+    <th>firebird</th>
+    <th>mysql</th>
+    <th>postgres</th>
+    <th>sqlite</th>
+    <th>sqlserver</th>
+    <th>ram</th>
+    <th>memcached</th>
+    <th>shelve</th>
+    <th>folders</th>
+    <th>json</th>
+</tr>
+
+<tr>
+    <td>Connection Pool <a href='#connpool'>[5]</a></td>
+    <td class='notsup'>N (single only)</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+</tr>
+
+<tr>
+    <td>Transactions</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+</tr>
+
+<tr>
+    <td>Indexes</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+</tr>
+
+<tr>
+    <td>Max identifier length</td>
+    <td>64</td>
+    <td>31</td>
+    <td>64</td>
+    <td>63</td>
+    <td>no limit?</td>
+    <td>128</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td>OS-dependent</td>
+    <td>OS-dependent</td>
+</tr>
+
+<tr>
+    <td>Case-sensitive identifiers</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Unix only</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y <a href='#filenames'>[3]</a></td>
+    <td>Y <a href='#filenames'>[3]</a></td>
+</tr>
+
+<tr>
+    <td>Case-sensitive LIKE ("a in b")</td>
+    <td class='python'>P</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>Case-sensitive string comparison ("a" &gt; "A")</td>
+    <td><tt>&lt;, &lt;=, ==, !=, &gt;, &gt;=</tt></td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td><tt>&lt;, &lt;=, ==, !=, &gt;, &gt;=</tt></td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>Wildcard literals in LIKE ("a in b")</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>3.0.8+</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>Autoincrement</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>3.1.0+</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>add/drop/rename property</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='python'>P <a href='#sqlite-alter-table'>[2]</a><br />(add: 3.2.0+)</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+</tr>
+
+<tr>
+    <th></th>
+    <th>access</th>
+    <th>firebird</th>
+    <th>mysql</th>
+    <th>postgres</th>
+    <th>sqlite</th>
+    <th>sqlserver</th>
+    <th>ram</th>
+    <th>memcached</th>
+    <th>shelve</th>
+    <th>folders</th>
+    <th>json</th>
+</tr>
+
+<tr>
+    <td>fixed point/decimal precision (in decimal digits)</td>
+    <td>12</td>
+    <td>18</td>
+    <td>16</td>
+    <td>1000</td>
+    <td>0 (always uses TEXT instead)</td>
+    <td>12</td>
+    <td class='python'>P (pickle)</td>
+    <td class='python'>P (pickle)</td>
+    <td class='python'>P (pickle)</td>
+    <td class='python'>P (pickle)</td>
+    <td>Python limit?</td>
+</tr>
+
+<tr>
+    <td>Max str/unicode bytes</td>
+    <td>1 GB <a href='#memofields'>[6]</a></td>
+    <td>32765 (255 for an index)</td>
+    <td>8000 (row limit)</td>
+    <td>1 GB?</td>
+    <td>1 MB (row limit)</td>
+    <td>8000 <a href='#ntext-bytes'>[4]</a></td>
+    <td class='python'>P (pickle)</td>
+    <td>1 MB (object limit, adjustable)</td>
+    <td class='python'>P (pickle)</td>
+    <td class='python'>P (pickle)</td>
+    <td>Python limit?</td>
+</tr>
+
+<tr>
+    <td>datetime ranges</td>
+    <td>0100-01-01 to 9999-12-31</td>
+    <td>1753-01-01 to 9999-12-31</td>
+    <td>1000-01-01 00:00:00 to 9999-12-31 23:59:59</td>
+    <td>4713 BC to 5874897 AD</td>
+    <td>4714-11-24 BC to ???</td>
+    <td>1753-01-01 00:00:00.0 to 9999-12-31 23:59:59.997</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>datetime precision</td>
+    <td>1 second</td>
+    <td>1 second</td>
+    <td>1 second</td>
+    <td>1 microsecond</td>
+    <td>1 second</td>
+    <td>1 second</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td>1 second</td>
+</tr>
+
+<tr>
+    <td>dejavu.year, month, day functions</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>3.2.3+ <a href='#perfect-dates'>[1]</a></td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>dejavu.now, today functions</td>
+    <td>Y</td>
+    <td>now</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>3.2.3+ <a href='#perfect-dates'>[1]</a></td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>startswith, endswith, containedby,
+        dejavu.icontainedby, dejavu.icontains,
+        dejavu.istartswith, dejavu.iendswith</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <td>builtin function: len</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+    <td class='python'>P</td>
+</tr>
+
+<tr>
+    <th></th>
+    <th>access</th>
+    <th>firebird</th>
+    <th>mysql</th>
+    <th>postgres</th>
+    <th>sqlite</th>
+    <th>sqlserver</th>
+    <th>ram</th>
+    <th>memcached</th>
+    <th>shelve</th>
+    <th>folders</th>
+    <th>json</th>
+</tr>
+
+<tr>
+    <td>READ UNCOMMITTED</td>
+    <td>Y</td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td class='notsup'>N <a href='#too-isolated'>[7]</a></td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+</tr>
+
+<tr>
+    <td>READ COMMITTED</td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='notsup'>N</td>
+    <td>Y (timeout)</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+</tr>
+<tr>
+    <td>REPEATABLE READ</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N <a href='#too-isolated'>[7]</a></td>
+    <td class='notsup'>N <a href='#too-isolated'>[7]</a></td>
+    <td class='notsup'>N <a href='#too-isolated'>[7]</a></td>
+    <td class='notsup'>N</td>
+    <td>Y (timeout)</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+</tr>
+<tr>
+    <td>SERIALIZABLE</td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td>Y (timeout)</td>
+    <td>Y</td>
+    <td>Y <a href='#memory-trans'>[8]</a></td>
+    <td>Y (timeout)</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+</tr>
+<tr>
+    <td>Change isolation inside transaction</td>
+    <td class='notsup'>N</td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td>Y</td>
+    <td class='notsup'>N</td>
+    <td>Y</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+</tr>
+</table>
+
+<p><a name='perfect-dates'>[1]</a> In order to use native date functions in
+SQLite, you must be storing your date and time values in one of the
+acceptable formats. See the
+<a href='http://www.sqlite.org/cvstrac/wiki?p=DateAndTimeFunctions'>SQLite wiki</a>
+for more information. Once you have verified that you are using such a format,
+you must then set AdapterToSQLite.using_perfect_dates to True. This can be
+done with the configuration entry: <tt>Perfect Dates: True</tt>.</p>
+
+<p><a name='sqlite-alter-table'>[2]</a> SQLite must copy the entire table
+to an intermediate table and then to a new, final table in order to alter
+tables. Beginning in 3.2.0, adding columns may now be performed natively
+(but not renaming or dropping them).</p>
+
+<p><a name='filenames'>[3]</a> The Folders store keeps identifer values and
+property names in folder and file names. Not all filesystems support
+case-sensitive file/folder names.</p>
+
+<p><a name='ntext-bytes'>[4]</a> Microsoft SQL Server does not allow
+comparisons on string fields larger than 8000 characters.</p>
+
+<p><a name='connpool'>[5]</a> Dejavu provides connection pool factories
+in pure Python, and does not yet make any attempt to use native pooling
+features.</p>
+
+<p><a name='memofields'>[6]</a> Microsoft Access "MEMO" fields have a 1 GB
+limit, but so does the entire database. Memo fields also cannot be used as
+join keys; set <tt>hints['bytes'] = 255</tt> or less to use VARCHAR instead.</p>
+
+<p><a name='memofields'>[7]</a> Some databases over-protect at various
+isolation levels. For example, "REPEATABLE READ" should prevent fuzzy
+reads but allow phantoms, but MySQL's and Firebird's REPEATABLE READ
+prevent both.
+PostgreSQL only uses two isolation levels internally, so that selecting
+"READ UNCOMMITTED" behaves like "READ COMMITTED" and "REPEATABLE READ"
+behaves like "SERIALIZABLE".</p>
+
+<p><a name='memory-trans'>[8]</a> SQLite <tt>:memory:</tt> databases
+cannot use multiple connections, so a single connection is used for
+all threads. However, this means that transactions are generally not
+allowed for <tt>:memory:</tt> databases when using multiple threads
+(because multiple transactions would overlap on the same connection
+and not be isolated at all!).</p>
+
+</body>
+</html>
